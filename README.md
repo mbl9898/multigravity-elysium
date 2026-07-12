@@ -365,51 +365,6 @@ If you later need multi-user support, Prisma makes it easy to migrate from SQLit
 
 ---
 
-## Clone Counter Setup
-
-The **Git Clones** badge at the top of this README is powered by a daily GitHub Actions workflow ([`.github/workflows/clone-counter.yml`](.github/workflows/clone-counter.yml)) that accumulates clone counts beyond the GitHub API's 14-day window.
-
-### One-time setup (≈ 5 minutes)
-
-**Step 1 — Create a GitHub Gist**
-
-1. Go to [gist.github.com](https://gist.github.com) while logged in as `mbl9898`.
-2. Create a **public** Gist with:
-   - **Filename:** `clone_count.json`
-   - **Content:**
-     ```json
-     {"total_clones": 0, "last_14d_count": 0, "last_14d_unique": 0, "last_updated": "never"}
-     ```
-3. Copy the Gist ID from the URL — it looks like: `https://gist.github.com/mbl9898/`**`abc123def456`**
-
-**Step 2 — Create a Personal Access Token (PAT)**
-
-1. Go to **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**.
-2. Create a new token with:
-   - **Repository access:** `mbl9898/multigravity-elysium` (this repo only)
-   - **Repository permissions:** `Administration` → Read-only *(needed for traffic data)*
-   - **Account permissions:** `Gists` → Read and write
-3. Copy the token — you'll only see it once.
-
-**Step 3 — Add repository secrets**
-
-In this repo: **Settings → Secrets and variables → Actions → New repository secret**
-
-| Secret name | Value |
-|---|---|
-| `CLONE_COUNTER_PAT` | The PAT from Step 2 |
-| `CLONE_COUNTER_GIST_ID` | The Gist ID from Step 1 (just the ID, not the full URL) |
-
-**Step 4 — Update the badge URL in this README**
-
-Replace `YOUR_GIST_ID` in the `[![Git Clones]...]` badge at the top with your actual Gist ID.
-
-**Step 5 — Run the workflow**
-
-Go to **Actions → Clone Counter → Run workflow** to populate the Gist immediately. After that it runs automatically every day at midnight UTC.
-
----
-
 ## License
 
 
