@@ -1,9 +1,32 @@
 #!/bin/bash
 # setup-daemon.sh
 # Automates the setup of the Antigravity Quota Dashboard as a macOS background service.
-# Run this script from the repo root: bash setup-daemon.sh
+#
+# Usage:
+#   bash setup-daemon.sh              # Interactive — prompts before modifying ~/.zshrc
+#   bash setup-daemon.sh --yes        # Non-interactive — accepts all prompts automatically
+#   bash setup-daemon.sh --no-alias   # Skip the shell alias entirely
 
 set -e
+
+# ── Parse flags ──────────────────────────────────────────────────────────────────
+OPT_YES=false
+OPT_NO_ALIAS=false
+for arg in "$@"; do
+  case "$arg" in
+    --yes|-y)       OPT_YES=true ;;
+    --no-alias)     OPT_NO_ALIAS=true ;;
+    --help|-h)
+      echo "Usage: bash setup-daemon.sh [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --yes, -y       Accept all prompts non-interactively"
+      echo "  --no-alias      Skip adding the 'quota' shell alias to ~/.zshrc"
+      echo "  --help, -h      Show this help message"
+      exit 0 ;;
+    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
 
 echo "=== Multigravity Elysium Daemon Setup ==="
 
@@ -165,14 +188,35 @@ if [ -f "$SRC_DIR/open-dashboard.sh" ]; then
   chmod +x "$TARGET_DIR/open-dashboard.sh"
 fi
 
-# ── Inject `quota` alias into ~/.zshrc ───────────────────────────────────────
+# ── Shell alias ──────────────────────────────────────────────────────────────────
 ALIAS_CMD="alias quota='bash $TARGET_DIR/open-dashboard.sh'"
 ZSHRC="$HOME/.zshrc"
-if ! grep -qF "open-dashboard.sh" "$ZSHRC" 2>/dev/null; then
+ALIAS_ADDED=false
+
+if [ "$OPT_NO_ALIAS" = "true" ]; then
+  # User explicitly opted out
+  ADD_ALIAS=false
+elif grep -qF "open-dashboard.sh" "$ZSHRC" 2>/dev/null; then
+  # Already present — nothing to do
+  ADD_ALIAS=false
+  ALIAS_ADDED=already
+elif [ "$OPT_YES" = "true" ]; then
+  # Non-interactive mode: auto-accept
+  ADD_ALIAS=true
+else
+  # Interactive prompt (default Y)
+  echo ""
+  printf "Add 'quota' shortcut to ~/.zshrc so you can open the dashboard with a single command? [Y/n] "
+  read -r REPLY
+  case "${REPLY:-Y}" in
+    [Yy]*|"" ) ADD_ALIAS=true ;;
+    *         ) ADD_ALIAS=false ;;
+  esac
+fi
+
+if [ "$ADD_ALIAS" = "true" ]; then
   printf '\n# Multigravity Elysium — open the Quota Dashboard\n%s\n' "$ALIAS_CMD" >> "$ZSHRC"
   ALIAS_ADDED=true
-else
-  ALIAS_ADDED=false
 fi
 
 
@@ -187,17 +231,21 @@ echo "  stderr: tail -f $TARGET_DIR/daemon-stderr.log"
 echo ""
 echo "The service will start automatically on login/reboot."
 echo ""
-echo "── Quick launch ──────────────────────────────────────────────────────"
+echo "── Quick launch ───────────────────────────────────────────────────────"
 if [ "$ALIAS_ADDED" = "true" ]; then
   echo "  ✓ 'quota' alias added to ~/.zshrc"
-  echo "    Run this to activate it now:"
-  echo "      source ~/.zshrc"
-  echo "    Then open the dashboard anytime with:"
-  echo "      quota"
-else
+  echo "    Activate it now:  source ~/.zshrc"
+  echo "    Then just run:    quota"
+elif [ "$ALIAS_ADDED" = "already" ]; then
   echo "  ✓ 'quota' alias already in ~/.zshrc"
-  echo "    Open the dashboard anytime with:"
-  echo "      quota"
+  echo "    Open the dashboard anytime with: quota"
+else
+  echo "  ○ 'quota' alias was not added."
+  echo "    To add it manually, run:"
+  echo "      echo \"# Multigravity Elysium\" >> ~/.zshrc"
+  echo "      echo \"$ALIAS_CMD\" >> ~/.zshrc"
+  echo "      source ~/.zshrc"
+  echo "    Or open the dashboard directly:"
+  echo "      bash $TARGET_DIR/open-dashboard.sh"
 fi
-echo "──────────────────────────────────────────────────────────────────────"
-
+echo "───────────────────────────────────────────────────────────────────"
