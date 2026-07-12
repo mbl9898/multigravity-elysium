@@ -1,0 +1,126 @@
+#!/bin/bash
+# setup-daemon.sh
+# Automates the setup of the Antigravity Quota Dashboard as a macOS background service.
+# Run this script from the repo root: bash setup-daemon.sh
+
+set -e
+
+echo "=== Multigravity Elysium Daemon Setup ==="
+
+# ── Resolve the repo root (the directory this script lives in) ────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="$SCRIPT_DIR"
+
+# ── Find Node.js ──────────────────────────────────────────────────────────────
+# If you use nvm, activate it first: `nvm use` then run this script.
+# The script attempts to locate node via nvm, then falls back to whatever is
+# in PATH (Homebrew, system node, etc.).
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$NVM_DIR/nvm.sh"
+  nvm use 2>/dev/null || true
+fi
+
+NODE_BIN="$(command -v node 2>/dev/null || true)"
+if [ -z "$NODE_BIN" ]; then
+  echo "ERROR: node not found. Install Node.js 22+ and ensure it is in PATH, then re-run."
+  exit 1
+fi
+NODE_DIR="$(dirname "$NODE_BIN")"
+echo "Using node: $NODE_BIN  ($(node --version))"
+
+# ── Target directory (home folder — not protected by macOS TCC) ───────────────
+TARGET_DIR="$HOME/.multigravity-elysium"
+echo "Creating target directory: $TARGET_DIR"
+mkdir -p "$TARGET_DIR"
+
+# ── Sync files (excluding build artifacts and local databases) ────────────────
+echo "Copying source files to home directory..."
+rsync -av \
+  --exclude='node_modules' \
+  --exclude='.next' \
+  --exclude='*.db' \
+  --exclude='*.db-journal' \
+  --exclude='scratch' \
+  --exclude='.git' \
+  "$SRC_DIR/" "$TARGET_DIR/"
+
+# Copy database file if it exists, or let prisma migrate create it
+if [ -f "$SRC_DIR/prisma/dev.db" ]; then
+  echo "Copying existing database..."
+  mkdir -p "$TARGET_DIR/prisma"
+  cp "$SRC_DIR/prisma/dev.db" "$TARGET_DIR/prisma/dev.db"
+fi
+
+# ── Install dependencies and build the production bundle ─────────────────────
+echo "Navigating to $TARGET_DIR..."
+cd "$TARGET_DIR"
+
+export PATH="$NODE_DIR:$PATH"
+
+echo "Installing npm dependencies..."
+npm install
+
+echo "Generating Prisma Client..."
+npx prisma generate
+
+echo "Building Next.js production build..."
+npm run build
+
+# ── Create start script inside target directory ───────────────────────────────
+echo "Creating daemon start script..."
+cat << EOF > "$TARGET_DIR/start.sh"
+#!/bin/bash
+# Resolve node from PATH at daemon start time
+export PATH="$NODE_DIR:\$PATH"
+cd "\$HOME/.multigravity-elysium"
+exec npx next start -p 39281
+EOF
+chmod +x "$TARGET_DIR/start.sh"
+
+# ── Write Launch Agent plist ──────────────────────────────────────────────────
+PLIST_PATH="$HOME/Library/LaunchAgents/com.multigravity.elysium.plist"
+echo "Writing Launch Agent configuration to $PLIST_PATH..."
+
+cat << EOF > "$PLIST_PATH"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.multigravity.elysium</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$TARGET_DIR/start.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>WorkingDirectory</key>
+    <string>$TARGET_DIR</string>
+    <key>StandardOutPath</key>
+    <string>$TARGET_DIR/daemon-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>$TARGET_DIR/daemon-stderr.log</string>
+</dict>
+</plist>
+EOF
+
+# ── Load the Launch Agent ─────────────────────────────────────────────────────
+echo "Unloading any existing agent instances..."
+launchctl unload "$PLIST_PATH" 2>/dev/null || true
+
+echo "Loading and starting the background service..."
+launchctl load "$PLIST_PATH"
+
+echo ""
+echo "=== Daemon Setup Completed Successfully! ==="
+echo "The dashboard is now running in the background."
+echo "URL: http://localhost:39281"
+echo ""
+echo "Logs:"
+echo "  stdout: tail -f $TARGET_DIR/daemon-stdout.log"
+echo "  stderr: tail -f $TARGET_DIR/daemon-stderr.log"
+echo ""
+echo "The service will start automatically on login/reboot."

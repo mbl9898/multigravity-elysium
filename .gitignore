@@ -1,0 +1,54 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ── Next.js build outputs ─────────────────────────────────────────────────────
+/.next/
+/out/
+/build
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Database (contains real account data — NEVER commit) ──────────────────────
+prisma/dev.db
+prisma/dev.db-journal
+prisma/*.db
+prisma/*.db-journal
+/src/generated/prisma
+
+# ── Environment / Secrets (NEVER commit) ──────────────────────────────────────
+.env
+.env.local
+.env.*.local
+# .env.local.example is intentionally NOT ignored (it has no real secrets)
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+*.pem
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+daemon-stdout.log
+daemon-stderr.log
+
+# ── Scratch / local working files ─────────────────────────────────────────────
+/scratch/
+
+# ── Vercel ────────────────────────────────────────────────────────────────────
+.vercel
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+/coverage

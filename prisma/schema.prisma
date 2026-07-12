@@ -1,0 +1,61 @@
+// This is your Prisma schema file — https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Account {
+  id       String  @id @default(cuid())
+  email    String
+  nickname String?
+
+  /// Subscription tier returned by loadCodeAssist (e.g. "Free", "Pro", "Ultra")
+  tier String?
+
+  /// cloudaicompanionProject from loadCodeAssist — needed for fetchAvailableModels
+  projectId String?
+
+  /// AES-256-GCM encrypted refresh token. NEVER stored in plaintext.
+  encryptedRefreshToken String
+
+  /// JSON blob: AccountQuota shape { gemini: PoolQuota, anthropic: PoolQuota }
+  /// Updated by the background scheduler every ~60s.
+  quotaJson String?
+
+  /// ISO 8601 timestamp of the last successful quota fetch
+  lastChecked DateTime?
+
+  /// Last error message (if quota fetch failed). Cleared on next success.
+  lastError String?
+
+  /// Whether the account is considered healthy (auth works, quota fetchable)
+  isHealthy Boolean @default(true)
+
+  /// Last time an auto-ping was successfully sent to start the 5h countdown
+  lastPingAt     DateTime?
+  /// Result of the last ping: "success" | "partial" | "error" | null
+  lastPingStatus String?
+  /// Last ping error message (cleared on next success)
+  lastPingError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("accounts")
+}
+
+/// Stores temporary OAuth state (code_verifier + state) during the login flow.
+/// Entries are deleted after use or after 10 minutes.
+model OAuthSession {
+  id           String   @id @default(cuid())
+  state        String   @unique
+  codeVerifier String
+  createdAt    DateTime @default(now())
+
+  @@map("oauth_sessions")
+}
