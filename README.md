@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/screenshots/01-dashboard-full.png" alt="Antigravity Quota Dashboard" width="900" />
+<img src="docs/screenshots/01-dashboard-full.png" alt="Multigravity Elysium — Multi-account AI Quota Dashboard" width="900" />
 
 # Multigravity Elysium
 
-**A personal, self-hosted dashboard to monitor quota usage across multiple [Antigravity IDE](https://idx.google.com/) accounts — Gemini and Anthropic pools, 5-hour and weekly windows, reset countdowns, and live health status.**
+**A personal, self-hosted dashboard to monitor AI quota usage across any number of Google accounts — Gemini and Anthropic pools, 5-hour and weekly windows, live reset countdowns, and health status at a glance.**
 
 [![Next.js](https://img.shields.io/badge/Next.js-16.x-black?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
@@ -19,16 +19,16 @@
 
 ## What Is This?
 
-Antigravity IDE (Google's AI coding tool) assigns quota to each account in two independent pools — **Gemini** and **Anthropic** — with two separate windows:
+Google's AI platform assigns quota to each account in two independent pools — **Gemini** and **Anthropic** — with two separate windows:
 
 | Window | Duration | Resets |
 |--------|----------|--------|
 | **5-Hour** | Rolling 5-hour window | Automatically, per your usage |
 | **Weekly** | 7-day calendar window | Every Monday |
 
-If you use multiple Antigravity accounts, tracking which one has remaining quota requires logging in and out of each account — tedious and slow. This dashboard solves that by showing **every account's quota state at a glance**, updating automatically every 60 seconds.
+If you use multiple Google accounts for AI (whether through [Antigravity IDE](https://idx.google.com/), [AI Studio](https://aistudio.google.com/), or any other Google AI product), tracking which account still has remaining quota requires logging in and out of each — tedious and slow. This dashboard solves that by showing **every account's quota state at a glance**, updating automatically every 60 seconds.
 
-> **Scope**: This is a **personal monitoring tool only**. It does not proxy requests, route traffic, load-balance, or act as a Claude/Gemini API adapter. Its single responsibility is to display quota information.
+> **Scope**: This is a **personal monitoring tool only**. It does not proxy requests, route traffic, load-balance, or act as a Claude/Gemini API adapter. Its single responsibility is to display quota information across your accounts.
 
 ---
 
@@ -36,7 +36,7 @@ If you use multiple Antigravity accounts, tracking which one has remaining quota
 
 ### 📊 Multi-Account Dashboard
 
-Connect any number of Google accounts. Each gets its own card showing live quota data, refreshed automatically.
+Connect any number of Google accounts. Each gets its own card showing live quota data, refreshed automatically every 60 seconds.
 
 <img src="docs/screenshots/01-dashboard-full.png" alt="Full dashboard showing multiple account cards in a responsive grid" width="800" />
 
@@ -45,13 +45,13 @@ Connect any number of Google accounts. Each gets its own card showing live quota
 ### 🃏 Account Cards
 
 Each card shows at a glance:
-- **Account email** (with optional nickname)
-- **Subscription tier** (Free / Pro / Ultra / Google AI Pro)
+- **Account email** (blurred in screenshots for privacy)
+- **Subscription tier** (Free / Google AI Pro / Gemini Code Assist / etc.)
 - **Gemini pool** — 5-Hour % remaining + Weekly % remaining + reset countdown
 - **Anthropic pool** — same layout
 - **Health status** dot (green = healthy, amber = degraded, red = error)
 - **Last updated** timestamp
-- Action buttons: Refresh · Ping · Activate in V2 · Delete
+- Action buttons: Refresh · Ping · Delete  _(+ Activate in Antigravity V2, if you use the IDE)_
 
 <img src="docs/screenshots/02-account-card.png" alt="Single account card close-up showing Gemini and Anthropic quota bars" width="420" />
 
@@ -65,17 +65,19 @@ When an account's weekly Anthropic or Gemini quota is exhausted, the card immedi
 
 ---
 
-### 🟢 V2 Active Badge
+### 🟢 Antigravity V2 Integration _(Optional)_
 
-Use the **"Activate in V2"** button on any card to switch Antigravity's active account server-side. The active account shows a pulsing **V2 Active** green badge so you always know which account is currently being used.
+If you use [Antigravity IDE](https://idx.google.com/), the **"Activate in V2"** button lets you switch the active AI account inside the IDE directly from this dashboard — without ever reopening it. The active account displays a pulsing **V2 Active** green badge.
 
-<img src="docs/screenshots/04-v2-active-and-footer.png" alt="Account card with V2 Active badge and footer action buttons" width="800" />
+This feature is **entirely optional** — the dashboard works fully without it for anyone using Google AI Studio or other Google AI products.
+
+<img src="docs/screenshots/04-v2-active-and-footer.png" alt="Account card with optional V2 Active badge for Antigravity IDE users" width="800" />
 
 ---
 
 ### 🔐 Secure Google OAuth Login
 
-Click **+ Add Account** to start a PKCE-secured OAuth flow. You're redirected to the real Google sign-in page (the same native-app client the Antigravity IDE itself uses). No credentials ever touch this app's server — only a refresh token is stored, encrypted with AES-256-GCM.
+Click **+ Add Account** to start a PKCE-secured OAuth flow. You're redirected to the real Google sign-in page. **Any Google account** with Google AI Studio / Gemini access can be added — no special software or subscription required. Only a refresh token is stored, encrypted with AES-256-GCM. No credentials ever touch this app's server.
 
 <img src="docs/screenshots/07-google-oauth.png" alt="Google OAuth sign-in page redirected from the dashboard" width="600" />
 
@@ -186,7 +188,7 @@ AccountCard UI renders live quota bars ◄─────────┘
 
 - **Node.js 22+** (`node --version`)
 - **npm 10+**
-- A **Google account** connected to Antigravity IDE
+- One or more **Google accounts** with Google AI / Gemini access (AI Studio, Antigravity IDE, Gemini Code Assist, etc.)
 
 ### 1. Clone & install
 
@@ -212,11 +214,11 @@ ENCRYPTION_KEY=your_64_char_hex_key_here
 # OAuth callback base URL (must match dev port)
 NEXT_PUBLIC_APP_URL=http://localhost:39281
 
-# Google Cloud Code OAuth credentials
-# These are the native-app credentials the Antigravity IDE uses.
-# You can find them by inspecting the IDE's network requests, or use your own GCP project.
-GOOGLE_CLIENT_ID=your_google_client_id
-GOOGLE_CLIENT_SECRET=your_google_client_secret
+# Google OAuth credentials (optional — built-in fallback works out-of-the-box)
+# Override here if you want to use your own GCP project's OAuth client.
+# Leave blank to use the default credentials bundled with the app.
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
 ```
 
 ### 3. Set up the database
@@ -239,10 +241,12 @@ Open [http://localhost:39281](http://localhost:39281).
 ## Adding Accounts
 
 1. Click **+ Add Account** in the top-right corner of the dashboard.
-2. You'll be redirected to a Google sign-in page — "Sign in to continue to **Google Antigravity**".
-3. Sign in with any Google account that has an Antigravity subscription.
+2. You'll be redirected to Google's sign-in page.
+3. Sign in with **any Google account** that has Google AI / Gemini access.
 4. You'll be redirected back to the dashboard with a success toast showing the account email.
 5. Quota data is fetched automatically within a few seconds.
+
+> Works with **Google AI Studio**, **Antigravity IDE**, **Gemini Code Assist**, and any Google account with Gemini/Anthropic AI quota.
 
 > The refresh token is encrypted with AES-256-GCM before being stored in the local SQLite database. Access tokens are kept **only in server memory** and never persisted.
 
@@ -288,7 +292,7 @@ tail -f ~/.multigravity-elysium/daemon-stderr.log
 
 ## Security & Privacy
 
-- **No telemetry.** This app makes no external requests other than to Google's own OAuth and Antigravity quota endpoints.
+- **No telemetry.** This app makes no external requests other than to Google's own OAuth and Google AI quota endpoints.
 - **No cloud services.** Everything — the database, tokens, and server — runs locally on your machine.
 - **Refresh tokens encrypted at rest** using AES-256-GCM with a key you generate and control (stored in `.env.local`, never committed).
 - **Access tokens are ephemeral** — fetched at request time, kept only in server memory, never persisted.
@@ -351,4 +355,4 @@ If you later need multi-user support, Prisma makes it easy to migrate from SQLit
 
 This is personal tooling built for private use. Use at your own discretion. No warranty is provided.
 
-> **Note:** This tool interacts with undocumented internal Antigravity API endpoints. These endpoints may change without notice. The app surfaces "last successful check" timestamps so you always know if data is stale.
+> **Note:** This tool interacts with Google's internal AI quota API endpoints (`cloudcode-pa.googleapis.com`). These are undocumented and may change without notice. The app surfaces "last successful check" timestamps so you always know if data is stale.
