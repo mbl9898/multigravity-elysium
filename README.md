@@ -271,33 +271,87 @@ Open [http://localhost:39281](http://localhost:39281).
 
 ## Running as a macOS Background Service (Daemon)
 
-To have the dashboard start automatically on login and run in the background:
+To have the dashboard start automatically on login and run in the background, run the setup script from the repository root:
 
 ```bash
 bash setup-daemon.sh
 ```
 
-This script will:
-1. Copy the app to `~/.multigravity-elysium`
-2. Build the production bundle
-3. Create a **macOS LaunchAgent** (`com.multigravity.elysium`)
-4. Load and start the service immediately
+### Setup Options (Flags)
 
-The dashboard will then be available at [http://localhost:39281](http://localhost:39281) and will **restart automatically on login**.
+The setup script supports the following flags for automated environments or custom preferences:
 
-**Manage the daemon:**
+- **Interactive (Default)**: Prompts you before adding the `quota` terminal alias to your `~/.zshrc`.
+- **`--yes` / `-y`**: Accepts all prompts automatically (non-interactive). Useful for script execution or automated setups.
+- **`--no-alias`**: Skips the shell shortcut configuration entirely.
+- **`--help` / `-h`**: Prints the usage manual and exits.
+
+---
+
+### 🚀 Quick Terminal Launch (`quota` command)
+
+During setup, you'll be prompted to add a shell shortcut to your terminal. Once added (and activated via `source ~/.zshrc`), you can open the dashboard from any terminal window using:
 
 ```bash
-# Stop the service
+quota
+```
+
+This command runs a companion script (`open-dashboard.sh`) which:
+1. Checks if the background daemon is responding on `http://localhost:39281`.
+2. Starts the daemon via `launchctl` if it was stopped.
+3. Opens the dashboard in your default system browser once it is active.
+
+**Manual daemon commands:**
+```bash
+# Stop the background service
 launchctl unload ~/Library/LaunchAgents/com.multigravity.elysium.plist
 
-# Start the service
+# Start the background service manually
 launchctl load ~/Library/LaunchAgents/com.multigravity.elysium.plist
 
-# View live logs
+# View background logs
 tail -f ~/.multigravity-elysium/daemon-stdout.log
 tail -f ~/.multigravity-elysium/daemon-stderr.log
 ```
+
+---
+
+## 📱 Progressive Web App (PWA)
+
+Multigravity Elysium includes full Progressive Web App support to run as a native desktop utility.
+
+- **Branded Install Card**: When opening the dashboard in a browser, an install banner appears at the top.
+  - **Chrome / Edge / Chromium**: Displays a single-click **Install App** button to create a standalone OS window.
+  - **Safari (macOS)**: Guides you to click **Share** → **Add to Dock** to place a high-resolution, branded icon in your macOS Dock.
+  - **iOS Safari / Android**: Displays mobile-specific instructions to add the app to your Home Screen.
+- **Standalone Window**: Once installed, the dashboard opens in its own borderless window with no browser search bar or navigation buttons.
+- **Background Safety**: The service worker explicitly bypasses caching for `/api/*` routes, guaranteeing you never see stale, cached quota percentages.
+
+---
+
+## 🔌 Offline / Daemon Failure Experience
+
+If the background daemon is ever stopped, the PWA service worker automatically intercepts the page load and serves a branded **Dashboard Unavailable** screen instead of a generic browser connection error.
+
+This page:
+- Explains that the background daemon is not running.
+- Displays copy-pasteable terminal commands to restart it.
+- Features a **Retry Connection** button that automatically refreshes the page once the daemon is active.
+- Auto-retries the connection quietly in the background every 10 seconds.
+
+---
+
+## 🤖 Antigravity IDE Integration (AGY Skill)
+
+The repository includes a custom agent skill located in [`.agents/skills/open-quota-dashboard/SKILL.md`](file:///.agents/skills/open-quota-dashboard/SKILL.md).
+
+When pair-programming with an Antigravity AI assistant, you can ask it to:
+- *"open my quota"*
+- *"check my api limits"*
+- *"show me the dashboard"*
+
+The agent will read the skill and run `open-dashboard.sh` to launch the app in your default system browser.
+
 
 ---
 
