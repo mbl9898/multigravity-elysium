@@ -159,6 +159,23 @@ launchctl unload "$PLIST_PATH" 2>/dev/null || true
 echo "Loading and starting the background service..."
 launchctl load "$PLIST_PATH"
 
+# ── Copy open-dashboard.sh to target directory ──────────────────────────────
+if [ -f "$SRC_DIR/open-dashboard.sh" ]; then
+  cp "$SRC_DIR/open-dashboard.sh" "$TARGET_DIR/open-dashboard.sh"
+  chmod +x "$TARGET_DIR/open-dashboard.sh"
+fi
+
+# ── Inject `quota` alias into ~/.zshrc ───────────────────────────────────────
+ALIAS_CMD="alias quota='bash $TARGET_DIR/open-dashboard.sh'"
+ZSHRC="$HOME/.zshrc"
+if ! grep -qF "open-dashboard.sh" "$ZSHRC" 2>/dev/null; then
+  printf '\n# Multigravity Elysium — open the Quota Dashboard\n%s\n' "$ALIAS_CMD" >> "$ZSHRC"
+  ALIAS_ADDED=true
+else
+  ALIAS_ADDED=false
+fi
+
+
 echo ""
 echo "=== Daemon Setup Completed Successfully! ==="
 echo "The dashboard is now running in the background."
@@ -169,3 +186,18 @@ echo "  stdout: tail -f $TARGET_DIR/daemon-stdout.log"
 echo "  stderr: tail -f $TARGET_DIR/daemon-stderr.log"
 echo ""
 echo "The service will start automatically on login/reboot."
+echo ""
+echo "── Quick launch ──────────────────────────────────────────────────────"
+if [ "$ALIAS_ADDED" = "true" ]; then
+  echo "  ✓ 'quota' alias added to ~/.zshrc"
+  echo "    Run this to activate it now:"
+  echo "      source ~/.zshrc"
+  echo "    Then open the dashboard anytime with:"
+  echo "      quota"
+else
+  echo "  ✓ 'quota' alias already in ~/.zshrc"
+  echo "    Open the dashboard anytime with:"
+  echo "      quota"
+fi
+echo "──────────────────────────────────────────────────────────────────────"
+

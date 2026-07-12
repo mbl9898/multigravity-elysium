@@ -1,5 +1,6 @@
 // src/app/page.tsx — Main dashboard page
 import { Dashboard } from '@/components/Dashboard';
+import { InstallPWACard } from '@/components/InstallPWACard';
 import { Suspense } from 'react';
 
 // Build version — bumps every server restart so you can confirm hot-reload picked up changes
@@ -94,7 +95,9 @@ export default async function Home({
       )}
 
       {/* ── Dashboard grid ── */}
-      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6">
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+        {/* PWA install banner — auto-hides when installed or dismissed */}
+        <InstallPWACard />
         <Suspense>
           <Dashboard />
         </Suspense>
