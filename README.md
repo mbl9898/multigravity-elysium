@@ -52,8 +52,6 @@ If you use multiple Google accounts for AI (whether through [Antigravity IDE](ht
 
 Connect any number of Google accounts. Each gets its own card showing live quota data, refreshed automatically every 60 seconds.
 
-<img src="docs/screenshots/01-dashboard-full.png" alt="Full dashboard showing multiple account cards in a responsive grid" width="800" />
-
 ---
 
 ### 🃏 Account Cards
@@ -169,8 +167,7 @@ multigravity-elysium/
 ├── prisma/
 │   ├── schema.prisma             ← Account + OAuthSession models
 │   └── migrations/               ← SQLite migration history
-├── setup-daemon.sh               ← macOS LaunchAgent setup script
-└── dev/                          ← Planning + research docs (not user-facing)
+└── setup-daemon.sh               ← macOS LaunchAgent setup script
 ```
 
 ### Data Flow
@@ -283,7 +280,7 @@ bash setup-daemon.sh
 This script will:
 1. Copy the app to `~/.multigravity-elysium`
 2. Build the production bundle
-3. Create a **macOS LaunchAgent** (`com.antigravity.quota-dashboard`)
+3. Create a **macOS LaunchAgent** (`com.multigravity.elysium`)
 4. Load and start the service immediately
 
 The dashboard will then be available at [http://localhost:39281](http://localhost:39281) and will **restart automatically on login**.
@@ -366,7 +363,6 @@ If you later need multi-user support, Prisma makes it easy to migrate from SQLit
 ---
 
 ## License
-
 
 This is personal tooling built for private use. Use at your own discretion. No warranty is provided.
 
