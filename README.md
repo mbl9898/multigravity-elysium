@@ -22,7 +22,7 @@
 [![License](https://img.shields.io/github/license/mbl9898/multigravity-elysium?style=flat&color=555555)](LICENSE)
 
 <!-- Visitor counter (auto-increments on every README view) -->
-[![Page Views](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Fmbl9898%2Fmultigravity-elysium&count_bg=%233D7EBF&title_bg=%23555555&icon=github.svg&icon_color=%23E7E7E7&title=Views&edge_flat=false)](https://hits.seeyoufarm.com)
+[![Page Views](https://hitscounter.dev/api/hit?url=https%3A%2F%2Fgithub.com%2Fmbl9898%2Fmultigravity-elysium&label=Views&color=3D7EBF&style=flat)](https://hitscounter.dev)
 
 <!-- Clone counter — powered by .github/workflows/clone-counter.yml + a GitHub Gist -->
 [![Git Clones](https://img.shields.io/badge/dynamic/json?color=blueviolet&label=Clones&query=total_clones&url=https%3A%2F%2Fgist.githubusercontent.com%2Fmbl9898%2Fe9eb3785906c607cef32ddebe2a65275%2Fraw%2Fclone_count.json&logo=github)](https://github.com/mbl9898/multigravity-elysium)
