@@ -45,11 +45,33 @@ rsync -av \
   --exclude='.git' \
   "$SRC_DIR/" "$TARGET_DIR/"
 
-# Copy database file if it exists, or let prisma migrate create it
-if [ -f "$SRC_DIR/prisma/dev.db" ]; then
-  echo "Copying existing database..."
-  mkdir -p "$TARGET_DIR/prisma"
-  cp "$SRC_DIR/prisma/dev.db" "$TARGET_DIR/prisma/dev.db"
+# ── Copy/Preserve populated database ──────────────────────────────────────────
+# Check if the database in TARGET_DIR already exists and is non-empty.
+# If it is already populated, we do NOT overwrite it unless the source DB has data too.
+SRC_DB="$SRC_DIR/prisma/dev.db"
+NEW_DB="$TARGET_DIR/prisma/dev.db"
+OLD_DB="$HOME/.antigravity-dashboard/prisma/dev.db"
+
+SRC_SIZE=$(wc -c < "$SRC_DB" 2>/dev/null || echo 0)
+NEW_SIZE=$(wc -c < "$NEW_DB" 2>/dev/null || echo 0)
+OLD_SIZE=$(wc -c < "$OLD_DB" 2>/dev/null || echo 0)
+
+mkdir -p "$TARGET_DIR/prisma"
+
+if [ "$NEW_SIZE" -gt 0 ]; then
+  echo "Target database already exists and is populated ($NEW_SIZE bytes). Keeping it."
+  # Ensure the source directory has it too, so local dev matches
+  if [ "$SRC_SIZE" -eq 0 ]; then
+    echo "Syncing target database back to source directory..."
+    cp "$NEW_DB" "$SRC_DB"
+  fi
+elif [ "$OLD_SIZE" -gt 0 ]; then
+  echo "Found populated database in old daemon path ($OLD_SIZE bytes). Migrating it..."
+  cp "$OLD_DB" "$NEW_DB"
+  cp "$OLD_DB" "$SRC_DB"
+elif [ "$SRC_SIZE" -gt 0 ]; then
+  echo "Copying existing database from source directory ($SRC_SIZE bytes)..."
+  cp "$SRC_DB" "$NEW_DB"
 fi
 
 # ── Install dependencies and build the production bundle ─────────────────────
@@ -64,6 +86,10 @@ npm install
 echo "Generating Prisma Client..."
 npx prisma generate
 
+echo "Deploying database migrations..."
+npx prisma migrate deploy
+
+
 echo "Building Next.js production build..."
 npm run build
 
@@ -74,9 +100,10 @@ cat << EOF > "$TARGET_DIR/start.sh"
 # Resolve node from PATH at daemon start time
 export PATH="$NODE_DIR:\$PATH"
 cd "\$HOME/.multigravity-elysium"
-exec npx next start -p 39281
+exec node node_modules/next/dist/bin/next start -p 39281
 EOF
 chmod +x "$TARGET_DIR/start.sh"
+
 
 # ── Write Launch Agent plist ──────────────────────────────────────────────────
 PLIST_PATH="$HOME/Library/LaunchAgents/com.multigravity.elysium.plist"
@@ -106,6 +133,24 @@ cat << EOF > "$PLIST_PATH"
 </dict>
 </plist>
 EOF
+
+# ── Unload old quota-dashboard Launch Agent if it exists ──────────────────────
+OLD_PLIST="$HOME/Library/LaunchAgents/com.antigravity.quota-dashboard.plist"
+if [ -f "$OLD_PLIST" ]; then
+  echo "Unloading old quota-dashboard Launch Agent..."
+  launchctl unload "$OLD_PLIST" 2>/dev/null || true
+  # Rename to prevent auto-restart on boot
+  mv "$OLD_PLIST" "${OLD_PLIST}.disabled" 2>/dev/null || true
+fi
+
+# ── Clean up existing processes on port 39281 to prevent port conflicts ───────
+if lsof -t -i :39281 >/dev/null 2>&1; then
+  echo "Port 39281 is in use. Terminating existing process(es)..."
+  PIDS=$(lsof -t -i :39281)
+  kill $PIDS 2>/dev/null || true
+  sleep 1
+  kill -9 $PIDS 2>/dev/null || true
+fi
 
 # ── Load the Launch Agent ─────────────────────────────────────────────────────
 echo "Unloading any existing agent instances..."

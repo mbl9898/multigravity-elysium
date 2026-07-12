@@ -5,6 +5,7 @@
 
 import { exec } from 'child_process';
 import http from 'http';
+import https from 'https';
 import type { AccountQuota } from '@/types';
 
 interface ProcessInfo {
@@ -96,21 +97,51 @@ interface UserStatusResponse {
 function queryUserStatus(port: number, csrfToken: string): Promise<UserStatusResponse> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({});
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port: port,
-        path: '/exa.language_server_pb.LanguageServerService/GetUserStatus',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
-          'Connect-Protocol-Version': '1',
-          'X-Codeium-Csrf-Token': csrfToken,
-        },
-        timeout: 1000,
+    const options = {
+      hostname: '127.0.0.1',
+      port: port,
+      path: '/exa.language_server_pb.LanguageServerService/GetUserStatus',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'Connect-Protocol-Version': '1',
+        'X-Codeium-Csrf-Token': csrfToken,
       },
-      (res) => {
+      timeout: 1000,
+    };
+
+    // Try HTTPS first (Antigravity's default local server mode)
+    const req = https.request({ ...options, rejectUnauthorized: false }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error('Failed to parse JSON response'));
+          }
+        } else {
+          tryHttpFallback();
+        }
+      });
+    });
+
+    req.on('error', () => {
+      tryHttpFallback();
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+
+    req.write(body);
+    req.end();
+
+    function tryHttpFallback() {
+      const fallbackReq = http.request(options, (res) => {
         let data = '';
         res.on('data', (chunk) => (data += chunk));
         res.on('end', () => {
@@ -124,16 +155,16 @@ function queryUserStatus(port: number, csrfToken: string): Promise<UserStatusRes
             reject(new Error(`HTTP ${res.statusCode}`));
           }
         });
-      }
-    );
+      });
 
-    req.on('error', (err) => reject(err));
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Request timeout'));
-    });
-    req.write(body);
-    req.end();
+      fallbackReq.on('error', (err) => reject(err));
+      fallbackReq.on('timeout', () => {
+        fallbackReq.destroy();
+        reject(new Error('Request timeout'));
+      });
+      fallbackReq.write(body);
+      fallbackReq.end();
+    }
   });
 }
 
