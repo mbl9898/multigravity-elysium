@@ -1,7 +1,7 @@
 'use client';
 // src/app/chat/page.tsx — AI Chat using Gemini & Claude via cloudcode-pa.googleapis.com
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { Account } from '@/types';
@@ -45,8 +45,6 @@ const MODEL_GROUPS = [
     ],
   },
 ] as const;
-
-type ModelId = typeof MODEL_GROUPS[number]['models'][number]['id'];
 
 function findModel(id: string) {
   for (const g of MODEL_GROUPS) {
@@ -189,7 +187,7 @@ export default function ChatPage() {
     },
   });
 
-  const accounts = data?.accounts ?? [];
+  const accounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
 
   useEffect(() => {
     if (accounts.length && !selectedAccountId) setSelectedAccountId(accounts[0].id);

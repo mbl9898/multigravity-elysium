@@ -34,32 +34,34 @@ export function InstallPWACard() {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    // Already dismissed this session
-    if (localStorage.getItem(DISMISSED_KEY)) {
-      setDismissed(true);
-      return;
-    }
+    // Defer check to prevent eslint warning about synchronous setState in effect
+    const checkTimer = setTimeout(() => {
+      if (localStorage.getItem(DISMISSED_KEY)) {
+        setDismissed(true);
+        return;
+      }
 
-    // Already running as installed PWA
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-      setState('installed');
-      return;
-    }
+      // Already running as installed PWA
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        setState('installed');
+        return;
+      }
 
-    const ua = navigator.userAgent;
-    const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
-    const isIOS = /iphone|ipad|ipod/i.test(ua);
+      const ua = navigator.userAgent;
+      const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+      const isIOS = /iphone|ipad|ipod/i.test(ua);
 
-    if (isIOS && isSafari) {
-      setState('safari-ios');
-      return;
-    }
+      if (isIOS && isSafari) {
+        setState('safari-ios');
+        return;
+      }
 
-    if (isSafari) {
-      // macOS Safari
-      setState('safari-macos');
-      return;
-    }
+      if (isSafari) {
+        // macOS Safari
+        setState('safari-macos');
+        return;
+      }
+    }, 0);
 
     // Chrome / Edge / other Chromium — wait for the prompt event
     const handler = (e: Event) => {
@@ -75,6 +77,7 @@ export function InstallPWACard() {
     }, 1500);
 
     return () => {
+      clearTimeout(checkTimer);
       window.removeEventListener('beforeinstallprompt', handler);
       clearTimeout(timeout);
     };

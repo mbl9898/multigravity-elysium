@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "prepare": "husky"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -48,6 +49,7 @@
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
     "typescript": "^5",
