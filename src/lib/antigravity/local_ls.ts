@@ -227,16 +227,21 @@ export async function scanLocalLanguageServers(): Promise<LocalQuotaResult[]> {
 
         // Standardize structure. Weekly values are left as parsed from the LS.
         // If not present in the LS, they remain null/unknown, allowing the remote-fetched weekly values to be merged.
+        //
+        // NOTE: Do NOT default remaining5h to 1.0 here. If no model configs were found
+        // for a pool (e.g. no Claude model is active in any IDE window), the value must
+        // stay null so that the merge logic in accounts.ts keeps the remote API value
+        // instead of overriding it with a fake 100%.
         const quota: AccountQuota = {
           gemini: {
-            remaining5h: gemini5h ?? 1.0,
+            remaining5h: gemini5h,   // null = no local data → remote value wins
             resetTime5h: geminiReset5h,
             remaining7d: geminiWeekly,
             resetTime7d: geminiResetWeekly,
             weeklyStatus: geminiWeeklyStatus,
           },
           anthropic: {
-            remaining5h: anthropic5h ?? 1.0,
+            remaining5h: anthropic5h, // null = no local data → remote value wins
             resetTime5h: anthropicReset5h,
             remaining7d: anthropicWeekly,
             resetTime7d: anthropicResetWeekly,

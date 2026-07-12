@@ -17,7 +17,7 @@ export function classifyModel(modelName: string): InternalPool {
   const name = modelName.toLowerCase();
 
   if (/claude|gpt/.test(name)) return 'claude_gpt';
-  if (/gemini/.test(name) && /\b3\.\d/.test(name)) return 'gemini3';
+  if (/gemini/.test(name) && /\b3[\.\-]\d|\b3\b/.test(name) && !/2\.5/.test(name)) return 'gemini3';
   if (/gemini/.test(name) && /\b2\.5/.test(name)) return 'gemini2.5';
   return 'unknown';
 }
