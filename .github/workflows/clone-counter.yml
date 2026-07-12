@@ -1,0 +1,117 @@
+name: Clone Counter
+
+on:
+  schedule:
+    # Runs every day at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-clone-count:
+    name: Fetch & Store Clone Stats
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Fetch clone traffic from GitHub API
+        id: clones
+        env:
+          GH_TOKEN: ${{ secrets.CLONE_COUNTER_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Fetch last-14-day clone data (requires repo owner token)
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/traffic/clones")
+
+          echo "API Response: $RESPONSE"
+
+          # Extract cumulative clone count from the last 14 days
+          CLONES_14D=$(echo "$RESPONSE" | jq '.count // 0')
+          UNIQUE_14D=$(echo "$RESPONSE" | jq '.uniques // 0')
+
+          echo "clones_14d=$CLONES_14D" >> "$GITHUB_OUTPUT"
+          echo "unique_14d=$UNIQUE_14D" >> "$GITHUB_OUTPUT"
+          echo "Clones (14d): $CLONES_14D | Unique: $UNIQUE_14D"
+
+      - name: Read existing cumulative count from Gist
+        id: prev
+        env:
+          GH_TOKEN: ${{ secrets.CLONE_COUNTER_PAT }}
+          GIST_ID: ${{ secrets.CLONE_COUNTER_GIST_ID }}
+        run: |
+          GIST_CONTENT=$(curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/gists/$GIST_ID")
+
+          # Parse the stored JSON from the gist file "clone_count.json"
+          RAW=$(echo "$GIST_CONTENT" | jq -r '.files["clone_count.json"].content // "{}"')
+          PREV_TOTAL=$(echo "$RAW" | jq '.total_clones // 0')
+          PREV_SNAPSHOT=$(echo "$RAW" | jq '.last_14d_count // 0')
+          PREV_DATE=$(echo "$RAW" | jq -r '.last_updated // "never"')
+
+          echo "prev_total=$PREV_TOTAL" >> "$GITHUB_OUTPUT"
+          echo "prev_snapshot=$PREV_SNAPSHOT" >> "$GITHUB_OUTPUT"
+          echo "Previous total: $PREV_TOTAL (last snapshot: $PREV_SNAPSHOT on $PREV_DATE)"
+
+      - name: Calculate new cumulative total
+        id: calc
+        run: |
+          CLONES_14D=${{ steps.clones.outputs.clones_14d }}
+          PREV_SNAPSHOT=${{ steps.prev.outputs.prev_snapshot }}
+          PREV_TOTAL=${{ steps.prev.outputs.prev_total }}
+          TODAY=$(date -u +"%Y-%m-%d")
+
+          # Add the delta between this 14d window and the last stored snapshot
+          # This accumulates count over time, beyond the 14-day API window
+          DELTA=$(( CLONES_14D - PREV_SNAPSHOT ))
+          if [ "$DELTA" -lt 0 ]; then
+            DELTA=0
+          fi
+          NEW_TOTAL=$(( PREV_TOTAL + DELTA ))
+
+          echo "new_total=$NEW_TOTAL" >> "$GITHUB_OUTPUT"
+          echo "today=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "Delta: +$DELTA | New total: $NEW_TOTAL"
+
+      - name: Update Gist with new count
+        env:
+          GH_TOKEN: ${{ secrets.CLONE_COUNTER_PAT }}
+          GIST_ID: ${{ secrets.CLONE_COUNTER_GIST_ID }}
+        run: |
+          NEW_TOTAL=${{ steps.calc.outputs.new_total }}
+          CLONES_14D=${{ steps.clones.outputs.clones_14d }}
+          UNIQUE_14D=${{ steps.clones.outputs.unique_14d }}
+          TODAY=${{ steps.calc.outputs.today }}
+
+          # Build JSON payload
+          PAYLOAD=$(jq -n \
+            --argjson total "$NEW_TOTAL" \
+            --argjson last14 "$CLONES_14D" \
+            --argjson unique14 "$UNIQUE_14D" \
+            --arg date "$TODAY" \
+            '{
+              total_clones: $total,
+              last_14d_count: $last14,
+              last_14d_unique: $unique14,
+              last_updated: $date
+            }')
+
+          # Escape for Gist API
+          ESCAPED=$(echo "$PAYLOAD" | jq -Rs .)
+
+          GIST_UPDATE=$(jq -n \
+            --argjson content "$ESCAPED" \
+            '{"files": {"clone_count.json": {"content": $content}}}')
+
+          curl -s -X PATCH \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d "$GIST_UPDATE" \
+            "https://api.github.com/gists/$GIST_ID" > /dev/null
+
+          echo "✅ Gist updated: total=$NEW_TOTAL, last_14d=$CLONES_14D, unique_14d=$UNIQUE_14D"

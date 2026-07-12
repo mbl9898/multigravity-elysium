@@ -6,12 +6,26 @@
 
 **A personal, self-hosted dashboard to monitor AI quota usage across any number of Google accounts — Gemini and Anthropic pools, 5-hour and weekly windows, live reset countdowns, and health status at a glance.**
 
+<!-- Tech stack badges -->
 [![Next.js](https://img.shields.io/badge/Next.js-16.x-black?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
 [![Prisma](https://img.shields.io/badge/Prisma-7-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/)
 [![SQLite](https://img.shields.io/badge/SQLite-Local-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
+
+<!-- GitHub stats badges -->
+[![GitHub Stars](https://img.shields.io/github/stars/mbl9898/multigravity-elysium?style=flat&logo=github&label=Stars&color=FFD700)](https://github.com/mbl9898/multigravity-elysium/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/mbl9898/multigravity-elysium?style=flat&logo=github&label=Forks&color=6A5ACD)](https://github.com/mbl9898/multigravity-elysium/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/mbl9898/multigravity-elysium?style=flat&logo=github&label=Issues&color=E74C3C)](https://github.com/mbl9898/multigravity-elysium/issues)
+[![Last Commit](https://img.shields.io/github/last-commit/mbl9898/multigravity-elysium?style=flat&logo=github&label=Last+Commit&color=2ECC71)](https://github.com/mbl9898/multigravity-elysium/commits/main)
+[![License](https://img.shields.io/github/license/mbl9898/multigravity-elysium?style=flat&color=555555)](LICENSE)
+
+<!-- Visitor counter (auto-increments on every README view) -->
+[![Page Views](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Fmbl9898%2Fmultigravity-elysium&count_bg=%233D7EBF&title_bg=%23555555&icon=github.svg&icon_color=%23E7E7E7&title=Views&edge_flat=false)](https://hits.seeyoufarm.com)
+
+<!-- Clone counter — powered by .github/workflows/clone-counter.yml + a GitHub Gist -->
+[![Git Clones](https://img.shields.io/badge/dynamic/json?color=blueviolet&label=Clones&query=total_clones&url=https%3A%2F%2Fgist.githubusercontent.com%2Fmbl9898%2Fe9eb3785906c607cef32ddebe2a65275%2Fraw%2Fclone_count.json&logo=github)](https://github.com/mbl9898/multigravity-elysium)
 
 </div>
 
@@ -351,7 +365,53 @@ If you later need multi-user support, Prisma makes it easy to migrate from SQLit
 
 ---
 
+## Clone Counter Setup
+
+The **Git Clones** badge at the top of this README is powered by a daily GitHub Actions workflow ([`.github/workflows/clone-counter.yml`](.github/workflows/clone-counter.yml)) that accumulates clone counts beyond the GitHub API's 14-day window.
+
+### One-time setup (≈ 5 minutes)
+
+**Step 1 — Create a GitHub Gist**
+
+1. Go to [gist.github.com](https://gist.github.com) while logged in as `mbl9898`.
+2. Create a **public** Gist with:
+   - **Filename:** `clone_count.json`
+   - **Content:**
+     ```json
+     {"total_clones": 0, "last_14d_count": 0, "last_14d_unique": 0, "last_updated": "never"}
+     ```
+3. Copy the Gist ID from the URL — it looks like: `https://gist.github.com/mbl9898/`**`abc123def456`**
+
+**Step 2 — Create a Personal Access Token (PAT)**
+
+1. Go to **GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens**.
+2. Create a new token with:
+   - **Repository access:** `mbl9898/multigravity-elysium` (this repo only)
+   - **Repository permissions:** `Administration` → Read-only *(needed for traffic data)*
+   - **Account permissions:** `Gists` → Read and write
+3. Copy the token — you'll only see it once.
+
+**Step 3 — Add repository secrets**
+
+In this repo: **Settings → Secrets and variables → Actions → New repository secret**
+
+| Secret name | Value |
+|---|---|
+| `CLONE_COUNTER_PAT` | The PAT from Step 2 |
+| `CLONE_COUNTER_GIST_ID` | The Gist ID from Step 1 (just the ID, not the full URL) |
+
+**Step 4 — Update the badge URL in this README**
+
+Replace `YOUR_GIST_ID` in the `[![Git Clones]...]` badge at the top with your actual Gist ID.
+
+**Step 5 — Run the workflow**
+
+Go to **Actions → Clone Counter → Run workflow** to populate the Gist immediately. After that it runs automatically every day at midnight UTC.
+
+---
+
 ## License
+
 
 This is personal tooling built for private use. Use at your own discretion. No warranty is provided.
 
