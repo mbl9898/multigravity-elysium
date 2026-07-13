@@ -10,7 +10,7 @@ import type { Account, AccountHealth, AccountQuota, PoolQuota } from '@/types';
 
 // ─── Serialization helpers ────────────────────────────────────────────────────
 
-function parseQuotaJson(json: string | null | undefined): AccountQuota | null {
+export function parseQuotaJson(json: string | null | undefined): AccountQuota | null {
   if (!json) return null;
   try {
     return JSON.parse(json) as AccountQuota;

@@ -8,6 +8,11 @@ import http from 'http';
 import https from 'https';
 import type { AccountQuota } from '@/types';
 
+// Minimum reset delay (in days) to qualify a bucket as the Weekly Limit.
+// The 5-hour limit's reset window is strictly <= 5 hours (0.208 days).
+// Any reset delay greater than 12 hours (0.5 days) is guaranteed to be a Weekly Limit.
+const MIN_WEEKLY_RESET_DAYS = 0.5;
+
 interface ProcessInfo {
   pid: number;
   csrfToken: string;
@@ -211,18 +216,20 @@ export async function scanLocalLanguageServers(): Promise<LocalQuotaResult[]> {
           if (label.includes('gemini')) {
             if (quota) {
               const fraction = quota.remainingFraction ?? 1.0;
-              // If the reset time is 1.5+ days away, it's the weekly reset, otherwise 5h
+              // If the reset time is greater than MIN_WEEKLY_RESET_DAYS, it's the weekly reset, otherwise 5h
               const resetTime = quota.resetTime;
               const resetDate = resetTime ? new Date(resetTime) : null;
               const daysDiff = resetDate ? (resetDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24) : 0;
 
-              if (daysDiff > 1.5) {
-                // True weekly window entry — use it for both 7d and 5h
+              if (daysDiff > MIN_WEEKLY_RESET_DAYS) {
+                // True weekly window entry
                 geminiWeekly = fraction;
                 geminiResetWeekly = resetTime ?? null;
                 geminiWeeklyStatus = fraction === 0 ? 'exhausted' : 'ok';
               } else {
-                // 5h window — track the worst (lowest) fraction
+                // 5h window — track the worst (lowest) fraction.
+                // Note: If no Gemini model has a resetTime <= MIN_WEEKLY_RESET_DAYS, gemini5h remains null.
+                // This prevents backfilling or overwriting the 5h limit with a weekly limit.
                 if (gemini5h === null || fraction < gemini5h) {
                   gemini5h = fraction;
                   geminiReset5h = resetTime ?? null;
@@ -237,13 +244,15 @@ export async function scanLocalLanguageServers(): Promise<LocalQuotaResult[]> {
               const resetDate = resetTime ? new Date(resetTime) : null;
               const daysDiff = resetDate ? (resetDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24) : 0;
 
-              if (daysDiff > 1.5) {
+              if (daysDiff > MIN_WEEKLY_RESET_DAYS) {
                 // True weekly window entry
                 anthropicWeekly = fraction;
                 anthropicResetWeekly = resetTime ?? null;
                 anthropicWeeklyStatus = fraction === 0 ? 'exhausted' : 'ok';
               } else {
-                // 5h window — track the worst (lowest) fraction across all Anthropic models
+                // 5h window — track the worst (lowest) fraction across all Anthropic models.
+                // Note: If no Anthropic model has a resetTime <= MIN_WEEKLY_RESET_DAYS, anthropic5h remains null.
+                // This prevents backfilling or overwriting the 5h limit with a weekly limit.
                 if (anthropic5h === null || fraction < anthropic5h) {
                   anthropic5h = fraction;
                   anthropicReset5h = resetTime ?? null;

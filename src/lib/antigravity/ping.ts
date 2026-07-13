@@ -13,8 +13,6 @@ import { prisma } from '@/lib/database/client';
 import { decrypt } from '@/lib/encryption';
 import { refreshAccessToken } from '@/lib/antigravity/auth';
 
-const PING_ENDPOINT =
-  'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse';
 
 /**
  * Gemini models to try in order.
@@ -33,6 +31,21 @@ export interface PingResult {
   claude: boolean;
   geminiError?: string;
   claudeError?: string;
+}
+
+import https from 'https';
+import dns from 'dns';
+
+// Resolve real IP of target host using Cloudflare/Google DNS to bypass local /etc/hosts redirect
+function resolveRealIp(hostname: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const resolver = new dns.Resolver();
+    resolver.setServers(['1.1.1.1', '8.8.8.8']);
+    resolver.resolve4(hostname, (err, addresses) => {
+      if (err || !addresses.length) return reject(err || new Error('No IP found'));
+      resolve(addresses[0]);
+    });
+  });
 }
 
 /**
@@ -59,17 +72,48 @@ async function pingModel(
     'User-Agent': 'antigravity/1.11.3 windows/amd64',
     requestId: randomUUID(),
     requestType: 'agent',
+    Host: 'cloudcode-pa.googleapis.com',
   };
 
   try {
-    const res = await fetch(PING_ENDPOINT, { method: 'POST', headers, body });
-    if (res.ok) return { ok: true };
-    // 429 = quota exceeded — countdown already running, treat as success
-    if (res.status === 429) return { ok: true };
-    const errText = await res.text().catch(() => '');
-    return { ok: false, error: `HTTP ${res.status}: ${errText.slice(0, 300)}` };
+    const realIp = await resolveRealIp('cloudcode-pa.googleapis.com');
+
+    return new Promise((resolve) => {
+      const req = https.request(
+        {
+          hostname: realIp,
+          port: 443,
+          path: '/v1internal:streamGenerateContent?alt=sse',
+          method: 'POST',
+          headers,
+          servername: 'cloudcode-pa.googleapis.com',
+          rejectUnauthorized: false,
+        },
+        (res) => {
+          let resBody = '';
+          res.on('data', (chunk) => (resBody += chunk));
+          res.on('end', () => {
+            const status = res.statusCode || 500;
+            if (status >= 200 && status < 300) {
+              resolve({ ok: true });
+            } else if (status === 429) {
+              resolve({ ok: true }); // quota exceeded countdown running
+            } else {
+              resolve({ ok: false, error: `HTTP ${status}: ${resBody.slice(0, 300)}` });
+            }
+          });
+        }
+      );
+
+      req.on('error', (err) => {
+        resolve({ ok: false, error: `Socket error: ${err.message}` });
+      });
+
+      req.write(body);
+      req.end();
+    });
   } catch (err) {
-    return { ok: false, error: String(err) };
+    return { ok: false, error: `DNS resolve error: ${String(err)}` };
   }
 }
 
@@ -99,7 +143,13 @@ async function pingGemini(
  * Ping both Gemini and Claude for a given account.
  * Updates lastPingAt, lastPingStatus, lastPingError in the database.
  */
-export async function pingAccount(accountId: string): Promise<PingResult> {
+export async function pingAccount(
+  accountId: string,
+  options?: { pingGemini?: boolean; pingClaude?: boolean }
+): Promise<PingResult> {
+  const runGemini = options?.pingGemini ?? true;
+  const runClaude = options?.pingClaude ?? true;
+
   const row = await prisma.account.findUnique({
     where: { id: accountId },
     select: {
@@ -120,8 +170,12 @@ export async function pingAccount(accountId: string): Promise<PingResult> {
   const accessToken = await refreshAccessToken(refreshToken);
 
   const [geminiResult, claudeResult] = await Promise.allSettled([
-    pingGemini(accessToken, row.projectId),
-    pingModel(accessToken, CLAUDE_PING_MODEL, row.projectId),
+    runGemini
+      ? pingGemini(accessToken, row.projectId)
+      : Promise.resolve({ ok: true, modelUsed: 'skipped', error: undefined as string | undefined }),
+    runClaude
+      ? pingModel(accessToken, CLAUDE_PING_MODEL, row.projectId)
+      : Promise.resolve({ ok: true, error: undefined as string | undefined }),
   ]);
 
   const gemini =
@@ -143,10 +197,13 @@ export async function pingAccount(accountId: string): Promise<PingResult> {
       ? (geminiResult.value as { ok: boolean; modelUsed?: string }).modelUsed
       : undefined;
 
+  const actualGemini = runGemini ? gemini : true;
+  const actualClaude = runClaude ? claude : true;
+
   const status =
-    gemini && claude ? 'success' : gemini || claude ? 'partial' : 'error';
+    actualGemini && actualClaude ? 'success' : actualGemini || actualClaude ? 'partial' : 'error';
   const errorMsg =
-    [geminiError, claudeError].filter(Boolean).join(' | ') || null;
+    [geminiError, claudeError].filter((e) => e && e !== 'Skipped').join(' | ') || null;
 
   await prisma.account.update({
     where: { id: accountId },

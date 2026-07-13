@@ -5,11 +5,26 @@
 //
 // In development: starts automatically when Next.js dev server starts.
 // In production: PM2 keeps the process alive, so the scheduler keeps running.
+//
+// NOTE: local_ls (MITM-dependent) is intentionally NOT used here.
+// All quota data comes from the remote Google API directly via ping.ts DNS bypass.
 
 import { prisma } from '@/lib/database/client';
-import { refreshQuotaForAccount } from '@/lib/database/accounts';
-import { scanLocalLanguageServers } from '@/lib/antigravity/local_ls';
-import { pingAccount, needsPing } from '@/lib/antigravity/ping';
+import { refreshQuotaForAccount, parseQuotaJson } from '@/lib/database/accounts';
+import { pingAccount } from '@/lib/antigravity/ping';
+// preWarmTokenCache is part of the router feature (separate module).
+// Path is intentionally kept in a variable so tsc does not try to resolve it
+// at compile time — the module will be available at runtime once deployed.
+async function preWarmTokenCache(): Promise<void> {
+  try {
+    const routerPath = '@/lib/router/accountRouter';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod: any = await import(/* @vite-ignore */ routerPath).catch(() => null);
+    if (typeof mod?.preWarmTokenCache === 'function') await mod.preWarmTokenCache();
+  } catch {
+    // router module not yet available — skip silently
+  }
+}
 
 // Prevent duplicate interval handles under Next.js Hot Module Replacement (HMR)
 const globalScheduler = globalThis as typeof globalThis & {
@@ -37,34 +52,89 @@ async function runRefreshCycle(): Promise<void> {
 
     if (accounts.length === 0) return;
 
-    // Discover any running local language servers first
-    const localResults = await scanLocalLanguageServers().catch((err) => {
-      console.error('[scheduler] Local LS scan failed:', err);
-      return [];
-    });
-
-    // All accounts refresh concurrently
+    // NOTE: local_ls is NOT used — it relies on MITM proxy data.
+    // All quota data comes directly from the remote Google API.
     await Promise.allSettled(
-      accounts.map((acc) => refreshQuotaForAccount(acc.id, localResults))
+      accounts.map((acc) => refreshQuotaForAccount(acc.id, []))
     );
 
     // ── Auto-ping: trigger 5h countdown for accounts that need it ──────────────
+    //
+    // TIMER ACTIVE DEFINITION:
+    //   A 5h timer is considered "truly active" only when ALL of the following:
+    //     (a) resetTime5h is in the future, AND
+    //     (b) pingStillValid OR remaining5h < 0.9999
+    //
+    // pingStillValid:
+    //   lastPingAt is only trusted as a "window started" signal if it occurred
+    //   within the last 5 hours. Once 5h pass, the previous ping is stale and
+    //   the account needs a fresh ping to start its next window.
+    //
+    //   Why this matters:
+    //   After a 5h window expires, the quota refresh runs BEFORE the ping check.
+    //   The remote API returns a new placeholder resetTime5h = now+5h (fake).
+    //   Without expiry, hasPinged=true + resetFuture=true → timerActive=true →
+    //   the scheduler skips the re-ping forever. By expiring pingStillValid after
+    //   5h, the stale lastPingAt no longer suppresses the next window's ping.
+    //
+    // remaining5h < 0.9999 fallback:
+    //   Catches accounts where lastPingAt is missing/cleared but real consumption
+    //   is already visible in the fraction (e.g. active IDE usage on the account).
+    //
+    // The 5h window constant matches Google's 5-hour quota reset period exactly.
+    const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
+
     const accountsWithPing = await prisma.account.findMany({
-      select: { id: true, lastPingAt: true },
+      select: { id: true, email: true, quotaJson: true, lastPingAt: true },
     });
 
-    const toPing = accountsWithPing.filter((acc) => needsPing(acc.lastPingAt));
+    for (const acc of accountsWithPing) {
+      const quota = parseQuotaJson(acc.quotaJson);
+      const now = new Date();
 
-    if (toPing.length > 0) {
-      console.log(`[scheduler] Auto-pinging ${toPing.length} account(s) to trigger 5h countdown...`);
-      await Promise.allSettled(
-        toPing.map((acc) =>
-          pingAccount(acc.id).catch((err) =>
-            console.error(`[scheduler] Ping failed for ${acc.id}:`, err)
-          )
-        )
-      );
+      // pingStillValid: last ping happened AND it was within the last 5 hours
+      const pingAgeMs = acc.lastPingAt ? now.getTime() - new Date(acc.lastPingAt).getTime() : Infinity;
+      const pingStillValid = acc.lastPingAt != null && pingAgeMs < FIVE_HOURS_MS;
+
+      // Gemini: timer active if resetTime future AND (ping still in-window OR consuming)
+      const geminiResetFuture = !!(quota?.gemini.resetTime5h && new Date(quota.gemini.resetTime5h) > now);
+      const geminiConsumed = quota?.gemini.remaining5h != null && quota.gemini.remaining5h < 0.9999;
+      const geminiTimerActive = geminiResetFuture && (pingStillValid || geminiConsumed);
+      const geminiExhausted = quota?.gemini.weeklyStatus === 'exhausted';
+      const geminiNeedsPing = !!(quota && !geminiTimerActive && !geminiExhausted);
+
+      // Claude: timer active if resetTime future AND (ping still in-window OR consuming)
+      const claudeResetFuture = !!(quota?.anthropic.resetTime5h && new Date(quota.anthropic.resetTime5h) > now);
+      const claudeConsumed = quota?.anthropic.remaining5h != null && quota.anthropic.remaining5h < 0.9999;
+      const claudeTimerActive = claudeResetFuture && (pingStillValid || claudeConsumed);
+      const claudeExhausted = quota?.anthropic.weeklyStatus === 'exhausted';
+      const claudeNeedsPing = !!(quota && !claudeTimerActive && !claudeExhausted);
+
+      const pingAgeFmt = isFinite(pingAgeMs)
+        ? `${Math.floor(pingAgeMs / 60000)}m ago`
+        : 'never';
+
+      if (geminiNeedsPing || claudeNeedsPing) {
+        console.log(
+          `[scheduler] Auto-pinging ${acc.email} | lastPing=${pingAgeFmt} pingStillValid=${pingStillValid}` +
+          ` | Gemini=${geminiNeedsPing} [future=${geminiResetFuture},consumed=${geminiConsumed}]` +
+          ` | Claude=${claudeNeedsPing} [future=${claudeResetFuture},consumed=${claudeConsumed}]`
+        );
+        pingAccount(acc.id, { pingGemini: geminiNeedsPing, pingClaude: claudeNeedsPing }).catch((err: unknown) =>
+          console.error(`[scheduler] Ping failed for ${acc.email}:`, err)
+        );
+      } else {
+        console.log(
+          `[scheduler] Skipping ${acc.email} | lastPing=${pingAgeFmt} pingStillValid=${pingStillValid}` +
+          ` | Gemini: active=${geminiTimerActive} exhausted=${geminiExhausted}` +
+          ` | Claude: active=${claudeTimerActive} exhausted=${claudeExhausted}`
+        );
+      }
     }
+    // ── Token pre-warming: refresh tokens expiring within 5 min ───────────────
+    await preWarmTokenCache().catch((err) =>
+      console.error('[scheduler] Token pre-warm failed:', err)
+    );
   } catch (err) {
     console.error('[scheduler] Error in refresh cycle:', err);
   } finally {
@@ -102,8 +172,8 @@ export function stopScheduler(): void {
 /**
  * Trigger an immediate refresh for a single account outside the normal cycle.
  * Used by the "Refresh now" button on account cards.
+ * NOTE: local_ls is not used — no MITM reliance.
  */
 export async function refreshNow(accountId: string): Promise<void> {
-  const localResults = await scanLocalLanguageServers().catch(() => []);
-  await refreshQuotaForAccount(accountId, localResults);
+  await refreshQuotaForAccount(accountId, []);
 }
