@@ -135,15 +135,14 @@ try:
     ps = subprocess.run(["ps", "-ww", "-eo", "pid,args"], capture_output=True, text=True)
     found = False
     for line in ps.stdout.splitlines():
-        if "language_server" in line and "subclient_type hub" in line and "grep" not in line:
+        if "language_server" in line and "grep" not in line:
             pid = int(line.strip().split()[0])
-            log(f"Found LS hub PID={pid}. Sending SIGTERM...")
+            log(f"Found LS process PID={pid}. Sending SIGTERM...")
             r3 = subprocess.run(["kill", "-TERM", str(pid)], capture_output=True)
             log(f"  kill exit={r3.returncode}")
             found = True
-            break
     if not found:
-        log("No LS hub process found (may already be dead)")
+        log("No LS process found (may already be dead)")
 except Exception as e:
     log(f"ERROR killing LS: {e}")
 
