@@ -54,6 +54,26 @@ model Account {
   @@map("accounts")
 }
 
+/// Global routing strategy configuration. Always contains exactly one row with id="global".
+/// Governs how the Elysium API gateway selects accounts for each request.
+model Settings {
+  id               String   @id @default("global")
+
+  /// 'smart' | 'round-robin' | 'locked' | 'custom'
+  routingMode      String   @default("smart")
+
+  /// Account ID to always use. Only relevant when routingMode = 'locked'.
+  lockedAccountId  String?
+
+  /// JSON-encoded string[]. Account IDs included in the rotation.
+  /// Only relevant when routingMode = 'custom'.
+  customAccountIds String?
+
+  updatedAt        DateTime @updatedAt
+
+  @@map("settings")
+}
+
 /// Stores temporary OAuth state (code_verifier + state) during the login flow.
 /// Entries are deleted after use or after 10 minutes.
 model OAuthSession {
