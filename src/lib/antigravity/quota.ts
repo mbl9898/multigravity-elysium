@@ -17,6 +17,7 @@ interface LoadCodeAssistResponse {
   // We normalize to a plain string for storage.
   paidTier?: string | { displayName?: string; tierCode?: string; name?: string } | null;
   currentTier?: string | { displayName?: string; tierCode?: string; name?: string } | null;
+  ineligibleTiers?: { reasonCode?: string; reasonMessage?: string }[];
 }
 
 /**
@@ -25,7 +26,7 @@ interface LoadCodeAssistResponse {
  */
 export async function loadCodeAssist(
   accessToken: string
-): Promise<{ projectId: string; tier: string | null }> {
+): Promise<{ projectId: string; tier: string | null; validationRequired: boolean }> {
   const response = await fetch(`${CLOUDCODE_BASE}/v1internal:loadCodeAssist`, {
     method: 'POST',
     headers: {
@@ -42,13 +43,27 @@ export async function loadCodeAssist(
 
   const data = (await response.json()) as LoadCodeAssistResponse;
 
-  if (!data.cloudaicompanionProject) {
-    throw new Error('loadCodeAssist returned no projectId (cloudaicompanionProject missing)');
-  }
-
+  let projectId = data.cloudaicompanionProject;
   const rawTier = data.paidTier ?? data.currentTier ?? null;
   const tier = normalizeTier(rawTier);
-  return { projectId: data.cloudaicompanionProject, tier };
+
+  // Detect SARP / VALIDATION_REQUIRED — account is blocked in IDE but works in CLI
+  const validationRequired = !!(data.ineligibleTiers?.some(t => t.reasonCode === 'VALIDATION_REQUIRED'));
+
+  if (!projectId) {
+    if (tier) {
+      console.log(`[loadCodeAssist] Missing cloudaicompanionProject for paid tier (${tier}), using fallback.`);
+      projectId = 'REDACTED_FALLBACK_PROJECT_ID';
+    } else if (validationRequired) {
+      // Account needs SARP verification — flag it but use fallback project so quota still works
+      console.warn(`[loadCodeAssist] VALIDATION_REQUIRED for account — flagging as validationRequired, using fallback projectId.`);
+      projectId = 'REDACTED_FALLBACK_PROJECT_ID';
+    } else {
+      throw new Error('loadCodeAssist returned no projectId (cloudaicompanionProject missing)');
+    }
+  }
+
+  return { projectId, tier, validationRequired };
 }
 
 /**

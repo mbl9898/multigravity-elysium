@@ -44,6 +44,7 @@ function toAccount(db: {
   lastPingAt: Date | null;
   lastPingStatus: string | null;
   lastPingError: string | null;
+  validationRequired: boolean;
 }): Account {
   return {
     id: db.id,
@@ -58,6 +59,7 @@ function toAccount(db: {
     lastPingAt: db.lastPingAt?.toISOString() ?? null,
     lastPingStatus: db.lastPingStatus,
     lastPingError: db.lastPingError,
+    validationRequired: db.validationRequired,
   };
 }
 
@@ -122,6 +124,8 @@ export async function updateAccountQuota(
       quotaToStore = mergeQuotaData(newQuota, existingQuota);
     }
   }
+
+
 
   await prisma.account.update({
     where: { id },
@@ -244,30 +248,19 @@ export async function refreshQuotaForAccount(
       const result = await loadCodeAssist(accessToken);
       projectId = result.projectId;
       tier = result.tier;
+      // Auto-flag if Google returned VALIDATION_REQUIRED
       await prisma.account.update({
         where: { id: accountId },
-        data: { projectId, tier },
+        data: {
+          projectId,
+          tier,
+          ...(result.validationRequired ? { validationRequired: true } : {}),
+        },
       });
     }
 
     // Fetch the quota remotely (fractions + weekly limits)
     let quota = await fetchAccountQuota(accessToken, projectId);
-
-    // ─── Fix resetTime5h ───────────────────────────────────────────────────
-    // The retrieveUserQuotaSummary API always returns resetTime = "now + 5h"
-    // on every call — it is NOT the actual window expiry. This causes the
-    // countdown to appear frozen at ~5h after every 60s refresh.
-    //
-    // Instead, we derive resetTime5h from lastPingAt (when we triggered the
-    // window). If the window has since expired, we clear it to null.
-    const pingExpiry = row.lastPingAt
-      ? new Date(new Date(row.lastPingAt).getTime() + 5 * 60 * 60 * 1000)
-      : null;
-    const windowOpen = pingExpiry && pingExpiry > new Date();
-
-    quota.gemini.resetTime5h = windowOpen ? pingExpiry!.toISOString() : null;
-    quota.anthropic.resetTime5h = windowOpen ? pingExpiry!.toISOString() : null;
-    // ──────────────────────────────────────────────────────────────────────
 
     // Merge existing quota first (preserve weekly data we've already computed)
     const existingQuota = parseQuotaJson(row.quotaJson);

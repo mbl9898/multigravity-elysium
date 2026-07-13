@@ -209,6 +209,17 @@ export function AccountCard({ account, onRefresh, onDelete, isRefreshing, onActi
                 V2 Active
               </span>
             )}
+            {account.validationRequired && (
+              <span
+                title="Google SARP verification required. This account is blocked in Antigravity IDE / V2 but works in CLI. Complete phone/browser verification to unlock."
+                className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-900/40 text-amber-300 border border-amber-600/50 rounded-full px-2 py-0.5 shrink-0 cursor-help"
+              >
+                <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                ⚠ Verify · CLI Only
+              </span>
+            )}
           </div>
           {account.nickname && (
             <p className="text-xs text-slate-500 truncate mt-0.5">{account.email}</p>
@@ -298,8 +309,20 @@ export function AccountCard({ account, onRefresh, onDelete, isRefreshing, onActi
 
         {/* Right: action buttons */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {/* Activate in V2 — most important, shown first */}
-          {!isV2Active && (
+          {/* Activate in V2 — blocked for validationRequired accounts */}
+          {account.validationRequired ? (
+            <span
+              title="Cannot activate in V2 — Google SARP verification required. Complete browser/phone verification to unlock."
+              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg border
+                cursor-not-allowed opacity-60
+                bg-amber-950/40 text-amber-500 border-amber-800/40"
+            >
+              <svg className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+              IDE Blocked
+            </span>
+          ) : !isV2Active && (
             <button
               id={`v2-activate-btn-${account.id}`}
               onClick={() => onActivateV2(account.id)}

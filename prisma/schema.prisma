@@ -40,6 +40,11 @@ model Account {
   lastPingAt     DateTime?
   /// Result of the last ping: "success" | "partial" | "error" | null
   lastPingStatus String?
+
+  /// Set to true when Google's SARP (VALIDATION_REQUIRED) blocks this account
+  /// from being used in the Antigravity IDE/V2. Account still works in CLI.
+  /// Auto-detected during loadCodeAssist; can also be set manually.
+  validationRequired Boolean @default(false)
   /// Last ping error message (cleared on next success)
   lastPingError  String?
 
