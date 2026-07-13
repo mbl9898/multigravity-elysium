@@ -42,6 +42,12 @@ export interface Account {
   /** 'success' | 'partial' | 'error' | null */
   lastPingStatus: string | null;
   lastPingError: string | null;
+  /**
+   * True when Google's SARP flow (VALIDATION_REQUIRED) blocks this account
+   * from working in Antigravity IDE / V2. The account still works in CLI.
+   * Auto-detected on first loadCodeAssist call; can also be set manually.
+   */
+  validationRequired: boolean;
 }
 
 /** What the API returns for the account list (tokens stripped). */

@@ -20,6 +20,7 @@ function createMockAccount(id: string, email: string, quota: Account['quota']): 
     lastPingAt: null,
     lastPingStatus: null,
     lastPingError: null,
+    validationRequired: false,
   };
 }
 
