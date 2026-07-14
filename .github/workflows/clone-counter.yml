@@ -14,27 +14,41 @@ jobs:
       contents: read
 
     steps:
-      - name: Fetch clone traffic from GitHub API
-        id: clones
+      - name: Fetch traffic stats from GitHub API
+        id: stats
         env:
           GH_TOKEN: ${{ secrets.CLONE_COUNTER_PAT }}
           REPO: ${{ github.repository }}
         run: |
           # Fetch last-14-day clone data (requires repo owner token)
-          RESPONSE=$(curl -s \
+          RESPONSE_CLONES=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/$REPO/traffic/clones")
 
-          echo "API Response: $RESPONSE"
+          echo "Clones Response: $RESPONSE_CLONES"
 
-          # Extract cumulative clone count from the last 14 days
-          CLONES_14D=$(echo "$RESPONSE" | jq '.count // 0')
-          UNIQUE_14D=$(echo "$RESPONSE" | jq '.uniques // 0')
+          CLONES_14D=$(echo "$RESPONSE_CLONES" | jq '.count // 0')
+          UNIQUE_CLONES_14D=$(echo "$RESPONSE_CLONES" | jq '.uniques // 0')
 
           echo "clones_14d=$CLONES_14D" >> "$GITHUB_OUTPUT"
-          echo "unique_14d=$UNIQUE_14D" >> "$GITHUB_OUTPUT"
-          echo "Clones (14d): $CLONES_14D | Unique: $UNIQUE_14D"
+          echo "unique_clones_14d=$UNIQUE_CLONES_14D" >> "$GITHUB_OUTPUT"
+          echo "Clones (14d): $CLONES_14D | Unique: $UNIQUE_CLONES_14D"
+
+          # Fetch last-14-day views data (requires repo owner token)
+          RESPONSE_VIEWS=$(curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/traffic/views")
+
+          echo "Views Response: $RESPONSE_VIEWS"
+
+          VIEWS_14D=$(echo "$RESPONSE_VIEWS" | jq '.count // 0')
+          UNIQUE_VIEWS_14D=$(echo "$RESPONSE_VIEWS" | jq '.uniques // 0')
+
+          echo "views_14d=$VIEWS_14D" >> "$GITHUB_OUTPUT"
+          echo "unique_views_14d=$UNIQUE_VIEWS_14D" >> "$GITHUB_OUTPUT"
+          echo "Views (14d): $VIEWS_14D | Unique: $UNIQUE_VIEWS_14D"
 
       - name: Read existing cumulative count from Gist
         id: prev
@@ -51,31 +65,54 @@ jobs:
           RAW=$(echo "$GIST_CONTENT" | jq -r '.files["clone_count.json"].content // "{}"')
           PREV_TOTAL=$(echo "$RAW" | jq '.total_clones // 0')
           PREV_SNAPSHOT=$(echo "$RAW" | jq '.last_14d_count // 0')
+          
+          PREV_VIEWS_TOTAL=$(echo "$RAW" | jq '.total_views // 0')
+          PREV_VIEWS_SNAPSHOT=$(echo "$RAW" | jq '.last_14d_views // 0')
+          
           PREV_DATE=$(echo "$RAW" | jq -r '.last_updated // "never"')
 
           echo "prev_total=$PREV_TOTAL" >> "$GITHUB_OUTPUT"
           echo "prev_snapshot=$PREV_SNAPSHOT" >> "$GITHUB_OUTPUT"
-          echo "Previous total: $PREV_TOTAL (last snapshot: $PREV_SNAPSHOT on $PREV_DATE)"
+          
+          echo "prev_views_total=$PREV_VIEWS_TOTAL" >> "$GITHUB_OUTPUT"
+          echo "prev_views_snapshot=$PREV_VIEWS_SNAPSHOT" >> "$GITHUB_OUTPUT"
+          
+          echo "Previous total clones: $PREV_TOTAL (last snapshot: $PREV_SNAPSHOT on $PREV_DATE)"
+          echo "Previous total views: $PREV_VIEWS_TOTAL (last snapshot: $PREV_VIEWS_SNAPSHOT)"
 
       - name: Calculate new cumulative total
         id: calc
         run: |
-          CLONES_14D=${{ steps.clones.outputs.clones_14d }}
+          CLONES_14D=${{ steps.stats.outputs.clones_14d }}
           PREV_SNAPSHOT=${{ steps.prev.outputs.prev_snapshot }}
           PREV_TOTAL=${{ steps.prev.outputs.prev_total }}
+          
+          VIEWS_14D=${{ steps.stats.outputs.views_14d }}
+          PREV_VIEWS_SNAPSHOT=${{ steps.prev.outputs.prev_views_snapshot }}
+          PREV_VIEWS_TOTAL=${{ steps.prev.outputs.prev_views_total }}
+          
           TODAY=$(date -u +"%Y-%m-%d")
 
-          # Add the delta between this 14d window and the last stored snapshot
-          # This accumulates count over time, beyond the 14-day API window
-          DELTA=$(( CLONES_14D - PREV_SNAPSHOT ))
-          if [ "$DELTA" -lt 0 ]; then
-            DELTA=0
+          # Calculate Clones Delta
+          DELTA_CLONES=$(( CLONES_14D - PREV_SNAPSHOT ))
+          if [ "$DELTA_CLONES" -lt 0 ]; then
+            DELTA_CLONES=0
           fi
-          NEW_TOTAL=$(( PREV_TOTAL + DELTA ))
+          NEW_TOTAL=$(( PREV_TOTAL + DELTA_CLONES ))
+
+          # Calculate Views Delta
+          DELTA_VIEWS=$(( VIEWS_14D - PREV_VIEWS_SNAPSHOT ))
+          if [ "$DELTA_VIEWS" -lt 0 ]; then
+            DELTA_VIEWS=0
+          fi
+          NEW_VIEWS_TOTAL=$(( PREV_VIEWS_TOTAL + DELTA_VIEWS ))
 
           echo "new_total=$NEW_TOTAL" >> "$GITHUB_OUTPUT"
+          echo "new_views_total=$NEW_VIEWS_TOTAL" >> "$GITHUB_OUTPUT"
           echo "today=$TODAY" >> "$GITHUB_OUTPUT"
-          echo "Delta: +$DELTA | New total: $NEW_TOTAL"
+          
+          echo "Clones Delta: +$DELTA_CLONES | New total: $NEW_TOTAL"
+          echo "Views Delta: +$DELTA_VIEWS | New total: $NEW_VIEWS_TOTAL"
 
       - name: Update Gist with new count
         env:
@@ -83,20 +120,35 @@ jobs:
           GIST_ID: ${{ secrets.CLONE_COUNTER_GIST_ID }}
         run: |
           NEW_TOTAL=${{ steps.calc.outputs.new_total }}
-          CLONES_14D=${{ steps.clones.outputs.clones_14d }}
-          UNIQUE_14D=${{ steps.clones.outputs.unique_14d }}
+          CLONES_14D=${{ steps.stats.outputs.clones_14d }}
+          UNIQUE_CLONES_14D=${{ steps.stats.outputs.unique_clones_14d }}
+          
+          NEW_VIEWS_TOTAL=${{ steps.calc.outputs.new_views_total }}
+          VIEWS_14D=${{ steps.stats.outputs.views_14d }}
+          UNIQUE_VIEWS_14D=${{ steps.stats.outputs.unique_views_14d }}
+          
+          VIEWS_COMBINED="${UNIQUE_VIEWS_14D} / ${NEW_VIEWS_TOTAL}"
+          
           TODAY=${{ steps.calc.outputs.today }}
 
           # Build JSON payload
           PAYLOAD=$(jq -n \
-            --argjson total "$NEW_TOTAL" \
-            --argjson last14 "$CLONES_14D" \
-            --argjson unique14 "$UNIQUE_14D" \
+            --argjson total_clones "$NEW_TOTAL" \
+            --argjson last_14d_count "$CLONES_14D" \
+            --argjson last_14d_unique "$UNIQUE_CLONES_14D" \
+            --argjson total_views "$NEW_VIEWS_TOTAL" \
+            --argjson last_14d_views "$VIEWS_14D" \
+            --argjson last_14d_views_unique "$UNIQUE_VIEWS_14D" \
+            --arg views_combined "$VIEWS_COMBINED" \
             --arg date "$TODAY" \
             '{
-              total_clones: $total,
-              last_14d_count: $last14,
-              last_14d_unique: $unique14,
+              total_clones: $total_clones,
+              last_14d_count: $last_14d_count,
+              last_14d_unique: $last_14d_unique,
+              total_views: $total_views,
+              last_14d_views: $last_14d_views,
+              last_14d_views_unique: $last_14d_views_unique,
+              views_combined: $views_combined,
               last_updated: $date
             }')
 
@@ -114,4 +166,4 @@ jobs:
             -d "$GIST_UPDATE" \
             "https://api.github.com/gists/$GIST_ID" > /dev/null
 
-          echo "✅ Gist updated: total=$NEW_TOTAL, last_14d=$CLONES_14D, unique_14d=$UNIQUE_14D"
+          echo "✅ Gist updated: total_clones=$NEW_TOTAL, total_views=$NEW_VIEWS_TOTAL, combined=$VIEWS_COMBINED"
