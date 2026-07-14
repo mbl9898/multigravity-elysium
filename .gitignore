@@ -57,3 +57,6 @@ daemon-stderr.log
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 /coverage
+
+# ── Docs (sensitive operational notes) ───────────────────────────────────────
+docs/quota_issues_history.md
