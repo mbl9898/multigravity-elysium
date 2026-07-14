@@ -60,3 +60,6 @@ daemon-stderr.log
 
 # ── Docs (sensitive operational notes) ───────────────────────────────────────
 docs/quota_issues_history.md
+
+# ── Private agent skills (scanning methodology — never publish) ──────────────
+.agents/skills/security-scan/
