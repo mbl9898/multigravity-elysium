@@ -66,6 +66,7 @@ rsync -av \
   --exclude='*.db-journal' \
   --exclude='scratch' \
   --exclude='.git' \
+  --exclude='.certs' \
   "$SRC_DIR/" "$TARGET_DIR/"
 
 # ── Copy/Preserve populated database ──────────────────────────────────────────
@@ -122,6 +123,7 @@ cat << EOF > "$TARGET_DIR/start.sh"
 #!/bin/bash
 # Resolve node from PATH at daemon start time
 export PATH="$NODE_DIR:\$PATH"
+export NODE_NO_WARNINGS=1
 cd "\$HOME/.multigravity-elysium"
 exec node node_modules/next/dist/bin/next start -p 39281
 EOF

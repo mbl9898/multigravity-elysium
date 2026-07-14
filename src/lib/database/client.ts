@@ -2,6 +2,8 @@
 // Prisma client singleton using libSQL driver adapter (Prisma 7 requirement).
 // Uses a local SQLite file — no external database needed.
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 import { PrismaClient } from '@prisma/client';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
 import path from 'path';

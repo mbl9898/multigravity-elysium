@@ -1,11 +1,9 @@
-<!-- BEGIN:nextjs-agent-rules -->
-# This is NOT the Next.js you know
+# Multigravity Elysium — Cursor Rules
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+## Next.js app conventions
+* This version has breaking changes — APIs, conventions, and file structure may all differ from standard training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 
-# Quota Calculation & Sync Rules
-
+## Quota Calculation & Sync Rules
 When working on quota calculations, tracking, parsing, or proxy interception logic, you MUST follow these constraints:
 
 1. **Window Classification Invariant**:
@@ -28,5 +26,4 @@ When working on quota calculations, tracking, parsing, or proxy interception log
 5. **Daemon Rebuild & Restart Rule**:
    * The dashboard runs as a background service/daemon. Editing source files does *not* automatically update the running app.
    * Every time you complete codebase changes (such as fixing a bug or implementing a feature), you MUST run `bash setup-daemon.sh --yes` to rebuild Next.js, migrate the database, and restart the background daemon process so changes take effect immediately.
-
 
