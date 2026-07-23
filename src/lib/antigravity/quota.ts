@@ -9,6 +9,57 @@ import type { AccountQuota, PoolQuota } from '@/types';
 
 const CLOUDCODE_BASE = 'https://cloudcode-pa.googleapis.com';
 
+// ─── loadCodeAssist in-memory cache ──────────────────────────────────────────
+// Keyed by access token. TTL = 55 minutes (access tokens live 60 min).
+// Prevents duplicate API hits within the same daemon refresh cycle.
+
+interface LoadCodeAssistCacheEntry {
+  result: { projectId: string; tier: string | null; validationRequired: boolean };
+  expiresAt: number;
+}
+
+const _loadCodeAssistCache = new Map<string, LoadCodeAssistCacheEntry>();
+const LCA_CACHE_TTL_MS = 55 * 60 * 1000; // 55 minutes
+
+/** Evict expired entries to avoid unbounded map growth. */
+function _pruneCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of _loadCodeAssistCache) {
+    if (entry.expiresAt <= now) _loadCodeAssistCache.delete(key);
+  }
+}
+
+// ─── Retry helper for 429 ─────────────────────────────────────────────────────
+/**
+ * Calls an async factory with exponential backoff on HTTP 429 responses.
+ * On the first attempt it executes immediately; subsequent retries wait
+ * `baseDelayMs * 2^attempt` milliseconds before retrying.
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  opts: { retries?: number; baseDelayMs?: number } = {}
+): Promise<T> {
+  const maxRetries = opts.retries ?? 2;
+  const baseDelay = opts.baseDelayMs ?? 2000;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = baseDelay * Math.pow(2, attempt - 1);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      // Only retry on 429 errors
+      if (!msg.includes('429')) throw err;
+      console.warn(`[quota] 429 received — retrying (attempt ${attempt + 1}/${maxRetries})…`);
+    }
+  }
+  throw lastErr;
+}
+
 // ─── Step 1: loadCodeAssist ──────────────────────────────────────────────────
 
 interface LoadCodeAssistResponse {
@@ -27,43 +78,59 @@ interface LoadCodeAssistResponse {
 export async function loadCodeAssist(
   accessToken: string
 ): Promise<{ projectId: string; tier: string | null; validationRequired: boolean }> {
-  const response = await fetch(`${CLOUDCODE_BASE}/v1internal:loadCodeAssist`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'AntigravityQuotaWatcher/1.0',
-    },
-    body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`loadCodeAssist failed (${response.status}): ${await response.text()}`);
+  // ── Cache check ──────────────────────────────────────────────────────────────
+  _pruneCache();
+  const cached = _loadCodeAssistCache.get(accessToken);
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log('[loadCodeAssist] Cache hit — skipping API call.');
+    return cached.result;
   }
 
-  const data = (await response.json()) as LoadCodeAssistResponse;
+  // ── Fetch with exponential-backoff retry on 429 ───────────────────────────
+  const result = await withRetry(async () => {
+    const response = await fetch(`${CLOUDCODE_BASE}/v1internal:loadCodeAssist`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'AntigravityQuotaWatcher/1.0',
+      },
+      body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
+    });
 
-  let projectId = data.cloudaicompanionProject;
-  const rawTier = data.paidTier ?? data.currentTier ?? null;
-  const tier = normalizeTier(rawTier);
-
-  // Detect SARP / VALIDATION_REQUIRED — account is blocked in IDE but works in CLI
-  const validationRequired = !!(data.ineligibleTiers?.some(t => t.reasonCode === 'VALIDATION_REQUIRED'));
-
-  if (!projectId) {
-    if (tier) {
-      console.log(`[loadCodeAssist] Missing cloudaicompanionProject for paid tier (${tier}), using fallback.`);
-      projectId = 'REDACTED_FALLBACK_PROJECT_ID';
-    } else if (validationRequired) {
-      // Account needs SARP verification — flag it but use fallback project so quota still works
-      console.warn(`[loadCodeAssist] VALIDATION_REQUIRED for account — flagging as validationRequired, using fallback projectId.`);
-      projectId = 'REDACTED_FALLBACK_PROJECT_ID';
-    } else {
-      throw new Error('loadCodeAssist returned no projectId (cloudaicompanionProject missing)');
+    if (!response.ok) {
+      throw new Error(`loadCodeAssist failed (${response.status}): ${await response.text()}`);
     }
-  }
 
-  return { projectId, tier, validationRequired };
+    const data = (await response.json()) as LoadCodeAssistResponse;
+
+    let projectId = data.cloudaicompanionProject;
+    const rawTier = data.paidTier ?? data.currentTier ?? null;
+    const tier = normalizeTier(rawTier);
+
+    // Detect SARP / VALIDATION_REQUIRED — account is blocked in IDE but works in CLI
+    const validationRequired = !!(data.ineligibleTiers?.some(t => t.reasonCode === 'VALIDATION_REQUIRED'));
+
+    if (!projectId) {
+      if (tier) {
+        console.log(`[loadCodeAssist] Missing cloudaicompanionProject for paid tier (${tier}), using fallback.`);
+        projectId = 'REDACTED_FALLBACK_PROJECT_ID';
+      } else if (validationRequired) {
+        // Account needs SARP verification — flag it but use fallback project so quota still works
+        console.warn(`[loadCodeAssist] VALIDATION_REQUIRED for account — flagging as validationRequired, using fallback projectId.`);
+        projectId = 'REDACTED_FALLBACK_PROJECT_ID';
+      } else {
+        throw new Error('loadCodeAssist returned no projectId (cloudaicompanionProject missing)');
+      }
+    }
+
+    return { projectId, tier, validationRequired };
+  }, { retries: 2, baseDelayMs: 2000 });
+
+  // ── Populate cache ────────────────────────────────────────────────────────
+  _loadCodeAssistCache.set(accessToken, { result, expiresAt: Date.now() + LCA_CACHE_TTL_MS });
+
+  return result;
 }
 
 /**

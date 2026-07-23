@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AccountCard } from './AccountCard';
 import { RoutingStrategyDrawer } from './RoutingStrategyDrawer';
+import { ExportImportDrawer } from './ExportImportDrawer';
 import type { Account } from '@/types';
 
 interface AccountsResponse {
@@ -331,8 +332,6 @@ export function Dashboard() {
 
   return (
     <>
-      {/* Routing strategy drawer — rendered at top level so the fixed overlay works correctly */}
-      <RoutingStrategyDrawer accounts={drawerAccounts} />
 
       {/* ── Search & Sort Toolbar ── */}
       <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center justify-between bg-slate-900/40 border border-slate-800/60 rounded-xl p-3.5 backdrop-blur-sm shadow-lg shadow-black/10">
@@ -362,34 +361,40 @@ export function Dashboard() {
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <label htmlFor="dashboard-sort" className="text-xs font-medium text-slate-400 select-none flex items-center gap-1.5 shrink-0">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
-            </svg>
-            Sort by
-          </label>
-          <div className="relative">
-            <select
-              id="dashboard-sort"
-              value={sortMode}
-              onChange={(e) => handleSortChange(e.target.value as SortMode)}
-              className="appearance-none bg-slate-950/40 hover:bg-slate-950/60 border border-slate-800/80 rounded-xl pl-3 pr-8 py-2 text-xs text-slate-300 font-medium focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/50 transition-all cursor-pointer"
-            >
-              <option value="email">Alphabetical (A-Z)</option>
-              <option value="gemini-weekly-reset">Gemini Weekly Reset (Soonest)</option>
-              <option value="anthropic-weekly-reset">Anthropic Weekly Reset (Soonest)</option>
-              <option value="gemini-5h-reset">Gemini 5h Reset (Soonest)</option>
-              <option value="anthropic-5h-reset">Anthropic 5h Reset (Soonest)</option>
-            </select>
-            <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none text-slate-500">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        <div className="flex items-center gap-2 flex-wrap">
+            <label htmlFor="dashboard-sort" className="text-xs font-medium text-slate-400 select-none flex items-center gap-1.5 shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
               </svg>
+              Sort by
+            </label>
+            <div className="relative">
+              <select
+                id="dashboard-sort"
+                value={sortMode}
+                onChange={(e) => handleSortChange(e.target.value as SortMode)}
+                className="appearance-none bg-slate-950/40 hover:bg-slate-950/60 border border-slate-800/80 rounded-xl pl-3 pr-8 py-2 text-xs text-slate-300 font-medium focus:outline-none focus:border-indigo-500/80 focus:ring-1 focus:ring-indigo-500/50 transition-all cursor-pointer"
+              >
+                <option value="email">Alphabetical (A-Z)</option>
+                <option value="gemini-weekly-reset">Gemini Weekly Reset (Soonest)</option>
+                <option value="anthropic-weekly-reset">Anthropic Weekly Reset (Soonest)</option>
+                <option value="gemini-5h-reset">Gemini 5h Reset (Soonest)</option>
+                <option value="anthropic-5h-reset">Anthropic 5h Reset (Soonest)</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none text-slate-500">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
+
+            {/* Routing strategy button + drawer — rendered at root to avoid backdrop-filter stacking context */}
+            <RoutingStrategyDrawer accounts={drawerAccounts} />
+
+            {/* Export / Import button + drawer — rendered at root to avoid backdrop-filter stacking context */}
+            <ExportImportDrawer />
           </div>
         </div>
-      </div>
 
       {sortedAccounts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center space-y-4 bg-slate-900/10 border border-slate-800/40 rounded-2xl">

@@ -1,7 +1,16 @@
 // src/lib/scheduler/index.ts
 // Background quota refresh scheduler.
 // Runs as an in-process singleton in the Next.js server (not in the browser).
-// Refreshes all account quotas every 60 seconds.
+//
+// Refresh cadence (tiered):
+//   Active account  — every  60 seconds  (ACTIVE_POLL_INTERVAL_MS)
+//   All other accounts — every 5 minutes  (IDLE_POLL_INTERVAL_MS)
+//
+// "Active account" = the account most recently used by the API gateway router.
+// This is tracked in-memory by accountRouter.getLastUsedAccountId().
+//
+// Requests are staggered by STAGGER_DELAY_MS between accounts to avoid burst
+// traffic to cloudcode-pa.googleapis.com and prevent 429 RESOURCE_EXHAUSTED.
 //
 // In development: starts automatically when Next.js dev server starts.
 // In production: PM2 keeps the process alive, so the scheduler keeps running.
@@ -12,6 +21,7 @@
 import { prisma } from '@/lib/database/client';
 import { refreshQuotaForAccount, parseQuotaJson } from '@/lib/database/accounts';
 import { pingAccount } from '@/lib/antigravity/ping';
+
 // preWarmTokenCache is part of the router feature (separate module).
 // Path is intentionally kept in a variable so tsc does not try to resolve it
 // at compile time — the module will be available at runtime once deployed.
@@ -26,17 +36,61 @@ async function preWarmTokenCache(): Promise<void> {
   }
 }
 
+/** Safely get the last-used account ID from the router module (may not be loaded yet). */
+async function getActiveAccountId(): Promise<string | null> {
+  try {
+    const routerPath = '@/lib/router/accountRouter';
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod: any = await import(/* @vite-ignore */ routerPath).catch(() => null);
+    if (typeof mod?.getLastUsedAccountId === 'function') return mod.getLastUsedAccountId() as string | null;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+// ─── Scheduler state ──────────────────────────────────────────────────────────
+
 // Prevent duplicate interval handles under Next.js Hot Module Replacement (HMR)
 const globalScheduler = globalThis as typeof globalThis & {
   __schedulerHandle__?: NodeJS.Timeout | null;
   __schedulerRunning__?: boolean;
+  /** Tracks when each account was last refreshed (epoch ms). */
+  __lastRefreshed__?: Map<string, number>;
 };
 
-const POLL_INTERVAL_MS = 60_000; // 60 seconds
+const ACTIVE_POLL_INTERVAL_MS =  1 * 60 * 1000;  //  1 minute  — active account
+const IDLE_POLL_INTERVAL_MS   =  5 * 60 * 1000;  //  5 minutes — all other accounts
+const TICK_INTERVAL_MS        =  60 * 1000;       // how often the scheduler wakes up to check
+const STAGGER_DELAY_MS        =  300;             // ms between sequential account refreshes
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getLastRefreshed(): Map<string, number> {
+  if (!globalScheduler.__lastRefreshed__) {
+    globalScheduler.__lastRefreshed__ = new Map();
+  }
+  return globalScheduler.__lastRefreshed__;
+}
+
+/** Returns true if the account is due for a refresh given its cadence. */
+function isDue(accountId: string, isActive: boolean): boolean {
+  const lastRefreshed = getLastRefreshed();
+  const last = lastRefreshed.get(accountId) ?? 0;
+  const interval = isActive ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS;
+  return Date.now() - last >= interval;
+}
+
+/** Sleep for a given number of milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// ─── Core refresh cycle ───────────────────────────────────────────────────────
 
 /**
- * Refresh quotas for ALL accounts concurrently.
- * Each account is independent — one failure doesn't stop others.
+ * One scheduler tick: determine which accounts are due for a refresh,
+ * then process them sequentially with a stagger delay to avoid burst traffic.
  */
 async function runRefreshCycle(): Promise<void> {
   if (globalScheduler.__schedulerRunning__) {
@@ -52,11 +106,32 @@ async function runRefreshCycle(): Promise<void> {
 
     if (accounts.length === 0) return;
 
-    // NOTE: local_ls is NOT used — it relies on MITM proxy data.
-    // All quota data comes directly from the remote Google API.
-    await Promise.allSettled(
-      accounts.map((acc) => refreshQuotaForAccount(acc.id, []))
-    );
+    const activeId = await getActiveAccountId();
+    const lastRefreshed = getLastRefreshed();
+
+    // Separate accounts into active vs idle, filter to only those due for refresh
+    const activeAccounts = accounts.filter((a) => a.id === activeId && isDue(a.id, true));
+    const idleAccounts  = accounts.filter((a) => a.id !== activeId && isDue(a.id, false));
+
+    const due = [...activeAccounts, ...idleAccounts];
+
+    if (due.length > 0) {
+      console.log(
+        `[scheduler] Refreshing ${due.length}/${accounts.length} account(s) ` +
+        `(active=${activeAccounts.length}, idle=${idleAccounts.length}, stagger=${STAGGER_DELAY_MS}ms)`
+      );
+
+      // NOTE: local_ls is NOT used — it relies on MITM proxy data.
+      // All quota data comes directly from the remote Google API.
+      for (const acc of due) {
+        await refreshQuotaForAccount(acc.id, []);
+        lastRefreshed.set(acc.id, Date.now());
+        if (due.indexOf(acc) < due.length - 1) {
+          // Stagger: wait between accounts to avoid a burst of simultaneous requests
+          await sleep(STAGGER_DELAY_MS);
+        }
+      }
+    }
 
     // ── Auto-ping: trigger 5h countdown for accounts that need it ──────────────
     //
@@ -142,20 +217,33 @@ async function runRefreshCycle(): Promise<void> {
   }
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 /**
  * Start the background scheduler.
  * Safe to call multiple times — only starts once (idempotent).
+ *
+ * The scheduler wakes up every TICK_INTERVAL_MS (60s) and decides which
+ * accounts are due for refresh based on their individual cadence:
+ *   - Active account: due every ACTIVE_POLL_INTERVAL_MS (1 min)
+ *   - Idle accounts:  due every IDLE_POLL_INTERVAL_MS   (5 min)
  */
 export function startScheduler(): void {
   if (globalScheduler.__schedulerHandle__) return;
 
-  console.log(`[scheduler] Starting quota refresh (interval: ${POLL_INTERVAL_MS / 1000}s)`);
+  console.log(
+    `[scheduler] Starting quota refresh ` +
+    `(active cadence: ${ACTIVE_POLL_INTERVAL_MS / 1000}s, ` +
+    `idle cadence: ${IDLE_POLL_INTERVAL_MS / 1000}s, ` +
+    `tick: ${TICK_INTERVAL_MS / 1000}s, ` +
+    `stagger: ${STAGGER_DELAY_MS}ms)`
+  );
 
   // Run immediately on start, then on interval
   void runRefreshCycle();
   globalScheduler.__schedulerHandle__ = setInterval(() => {
     void runRefreshCycle();
-  }, POLL_INTERVAL_MS);
+  }, TICK_INTERVAL_MS);
 }
 
 /**
@@ -176,4 +264,6 @@ export function stopScheduler(): void {
  */
 export async function refreshNow(accountId: string): Promise<void> {
   await refreshQuotaForAccount(accountId, []);
+  // Also mark it as freshly refreshed so the cadence clock resets
+  getLastRefreshed().set(accountId, Date.now());
 }

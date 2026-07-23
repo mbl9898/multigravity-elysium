@@ -243,21 +243,9 @@ export async function refreshQuotaForAccount(
     const refreshToken = decrypt(row.encryptedRefreshToken);
     const accessToken = await refreshAccessToken(refreshToken);
 
-    let { projectId, tier } = row;
-    if (!projectId) {
-      const result = await loadCodeAssist(accessToken);
-      projectId = result.projectId;
-      tier = result.tier;
-      // Auto-flag if Google returned VALIDATION_REQUIRED
-      await prisma.account.update({
-        where: { id: accountId },
-        data: {
-          projectId,
-          tier,
-          ...(result.validationRequired ? { validationRequired: true } : {}),
-        },
-      });
-    }
+    // Always call loadCodeAssist to refresh validationRequired, tier, and projectId
+    const result = await loadCodeAssist(accessToken);
+    const { projectId, tier, validationRequired } = result;
 
     // Fetch the quota remotely (fractions + weekly limits)
     let quota = await fetchAccountQuota(accessToken, projectId);
@@ -290,7 +278,20 @@ export async function refreshQuotaForAccount(
 
     quota.gemini.lastWeeklyChecked = new Date().toISOString();
     quota.anthropic.lastWeeklyChecked = new Date().toISOString();
-    await updateAccountQuota(accountId, quota, { mergeWeekly: false });
+
+    // Store everything in a single DB write
+    await prisma.account.update({
+      where: { id: accountId },
+      data: {
+        projectId,
+        tier,
+        validationRequired,
+        quotaJson: JSON.stringify(quota),
+        lastChecked: new Date(),
+        lastError: null,
+        isHealthy: true,
+      },
+    });
   } catch (err) {
     // Fallback: If remote refresh fails, check if we have a local LS result we can use
     if (localResults && localResults.length > 0) {

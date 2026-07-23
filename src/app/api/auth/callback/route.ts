@@ -11,9 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exchangeCodeForTokens, fetchUserInfo } from '@/lib/antigravity/auth';
 import { prisma } from '@/lib/database/client';
-import { createAccount } from '@/lib/database/accounts';
-import { loadCodeAssist } from '@/lib/antigravity/quota';
-import { refreshQuotaForAccount } from '@/lib/database/accounts';
+import { createAccount, refreshQuotaForAccount } from '@/lib/database/accounts';
 
 const DASHBOARD_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 
@@ -54,19 +52,9 @@ export async function GET(req: NextRequest) {
     // Fetch user info (email)
     const userInfo = await fetchUserInfo(tokens.access_token);
 
-    // Get projectId + tier via loadCodeAssist
-    let tier: string | null = null;
-    let projectId: string | null = null;
-    try {
-      const result = await loadCodeAssist(tokens.access_token);
-      projectId = result.projectId;
-      tier = result.tier;
-    } catch {
-      // Non-fatal — we'll get it on the first scheduled refresh
-    }
-
-    // Create the account (stores encrypted refresh token)
-    const account = await createAccount(userInfo.email, tokens.refresh_token, tier, projectId);
+    // Create the account (stores encrypted refresh token).
+    // tier and projectId start null — the background job fills them in on first refresh.
+    const account = await createAccount(userInfo.email, tokens.refresh_token, null, null);
 
     // Trigger initial quota fetch in the background (don't wait — don't block the redirect)
     void refreshQuotaForAccount(account.id);

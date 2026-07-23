@@ -43,6 +43,18 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 const inFlight = new Set<string>();
 
 /**
+ * The account that most recently handled a routed request.
+ * Used by the scheduler to give the active account a faster refresh cadence (1 min)
+ * while refreshing all other accounts on a slower cadence (5 min).
+ */
+let _lastUsedAccountId: string | null = null;
+
+/** Returns the ID of the most recently used account, or null if no request has been routed yet. */
+export function getLastUsedAccountId(): string | null {
+  return _lastUsedAccountId;
+}
+
+/**
  * Per-pool round-robin index. Incremented after each selection so the next
  * request goes to the next account in the sorted candidate list.
  */
@@ -242,6 +254,7 @@ export async function selectAndLockAccount(
   }
 
   inFlight.add(selected.id);
+  _lastUsedAccountId = selected.id; // track for scheduler's tiered cadence
   const accessToken = await getAccessToken(selected.id, selected.encryptedRefreshToken);
   return { accountId: selected.id, email: selected.email, accessToken };
 }

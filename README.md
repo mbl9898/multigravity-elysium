@@ -4,7 +4,7 @@
 
 # Multigravity Elysium
 
-**A personal, self-hosted dashboard to monitor AI quota usage across any number of Google accounts — Gemini and Anthropic pools, 5-hour and weekly windows, live reset countdowns, and health status at a glance.**
+**A personal, self-hosted dashboard to monitor AI quota usage across any number of Google accounts — Gemini and Anthropic pools, 5-hour and weekly windows, live reset countdowns, and health status at a glance. Also ships a quota-aware OpenAI/Anthropic-compatible completions gateway that automatically routes requests across your account pool.**
 
 <!-- Tech stack badges -->
 [![Next.js](https://img.shields.io/badge/Next.js-16.x-black?logo=next.js&logoColor=white)](https://nextjs.org/)
@@ -42,7 +42,7 @@ Google's AI platform assigns quota to each account in two independent pools — 
 
 If you use multiple Google accounts for AI (whether through [Antigravity IDE](https://idx.google.com/), [AI Studio](https://aistudio.google.com/), or any other Google AI product), tracking which account still has remaining quota requires logging in and out of each — tedious and slow. This dashboard solves that by showing **every account's quota state at a glance**, updating automatically every 60 seconds.
 
-> **Scope**: This is a **personal monitoring tool only**. It does not proxy requests, route traffic, load-balance, or act as a Claude/Gemini API adapter. Its single responsibility is to display quota information across your accounts.
+> **Scope**: This dashboard has two responsibilities: (1) **monitoring** — display quota information across your accounts, refreshed every 60 seconds; and (2) **gateway** — an OpenAI and Anthropic-compatible completions proxy that load-balances requests across all your connected accounts, with automatic failover on quota exhaustion.
 
 ---
 
@@ -105,6 +105,48 @@ The **Ping** button sends a minimal request to start (or restart) the 5-hour cou
 
 ---
 
+### 🧠 Routing Strategy
+
+A **Routing Strategy** drawer in the dashboard header lets you control how the completions gateway distributes requests across your account pool:
+
+| Strategy | Icon | Behaviour |
+|---|---|---|
+| **Smart Priority** | 🧠 | Burns quota expiring within 2 days first, then round-robins. Default. |
+| **Round Robin** | 🔄 | Equal rotation across all healthy accounts. |
+| **Locked Account** | 🔒 | Pin all traffic to one specific account. |
+| **Custom Pool** | 🎛 | You choose which accounts are eligible; round-robins within them. |
+
+<img src="docs/screenshots/09-routing-drawer.png" alt="Routing Strategy drawer open showing four modes" width="800" />
+
+---
+
+### 🔌 Completions Gateway (OpenAI & Anthropic Compatible)
+
+Elysium exposes two drop-in API endpoints that route requests across your pooled accounts with automatic failover on `429 Resource Exhausted`:
+
+```
+POST /api/v1/chat/completions   ← OpenAI-compatible
+POST /api/v1/messages           ← Anthropic-compatible
+```
+
+Any client that speaks the OpenAI SDK just needs its `baseURL` pointed at your local Elysium instance:
+
+```ts
+import OpenAI from 'openai';
+const ai = new OpenAI({ apiKey: 'unused', baseURL: 'http://localhost:39281/api/v1' });
+const r = await ai.chat.completions.create({ model: 'gemini-3-flash', messages: [...] });
+```
+
+Supported models span both the **Gemini pool** and the **Anthropic pool** (Claude Sonnet, Claude Opus, and GPT-compatible models served via the CloudCode API).
+
+---
+
+### 💬 Built-in Chat Interface
+
+A full chat UI is included at `/chat` — select any model from the catalogue, pick an account, and chat directly through the gateway.
+
+<img src="docs/screenshots/10-chat-interface.png" alt="Built-in chat interface showing model selector and conversation" width="900" />
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -137,8 +179,16 @@ multigravity-elysium/
 │   │   │   │   ├── login/        ← Initiates OAuth + PKCE flow
 │   │   │   │   └── callback/     ← Handles Google redirect
 │   │   │   ├── quota/            ← Manual quota refresh per account
-│   │   │   └── v2/switch-account ← Server-side V2 account switching
-│   │   ├── chat/                 ← Chat interface (bonus feature)
+│   │   │   ├── settings/         ← Routing strategy persistence
+│   │   │   ├── v1/
+│   │   │   │   ├── chat/completions/ ← OpenAI-compatible gateway
+│   │   │   │   └── messages/         ← Anthropic-compatible gateway
+│   │   │   └── v2/               ← V2 IDE account management
+│   │   │       ├── get-token/    ← Vends access token for a pool account
+│   │   │       ├── switch-account/ ← Writes to macOS keychain + restarts LS
+│   │   │       ├── mark-exhausted/ ← Marks a pool as exhausted
+│   │   │       └── update-project/ ← Auto-learns active GCP project ID
+│   │   ├── chat/                 ← Built-in chat UI
 │   │   ├── layout.tsx
 │   │   └── page.tsx              ← Root dashboard page
 │   ├── components/
@@ -146,6 +196,8 @@ multigravity-elysium/
 │   │   ├── Dashboard.tsx         ← Grid of AccountCards + TanStack Query
 │   │   ├── QuotaBar.tsx          ← Colored progress bar (green/amber/red)
 │   │   ├── CountdownTimer.tsx    ← Live countdown to quota reset
+│   │   ├── RoutingStrategyDrawer.tsx ← Gateway routing mode selector
+│   │   ├── InstallPWACard.tsx    ← PWA install banner
 │   │   └── QueryProvider.tsx     ← TanStack Query provider wrapper
 │   ├── lib/
 │   │   ├── antigravity/
@@ -154,18 +206,23 @@ multigravity-elysium/
 │   │   │   ├── weekly.ts         ← Weekly quota probe logic
 │   │   │   ├── ping.ts           ← 5-hour countdown ping
 │   │   │   ├── classifier.ts     ← Pool classifier (Gemini / Anthropic)
-│   │   │   └── local_ls.ts       ← Import from local Antigravity IDE state
+│   │   │   └── local_ls.ts       ← Sync from local Antigravity IDE state
+│   │   ├── cloudcode/
+│   │   │   ├── client.ts         ← CloudCode API client for completions
+│   │   │   └── collapse.ts       ← SSE stream collapse utilities
 │   │   ├── database/
 │   │   │   ├── client.ts         ← Prisma + libsql client singleton
 │   │   │   └── accounts.ts       ← Account CRUD (type-safe, server-side)
 │   │   ├── encryption/
 │   │   │   └── index.ts          ← AES-256-GCM encrypt/decrypt
+│   │   ├── router/
+│   │   │   └── accountRouter.ts  ← Smart/Round-Robin/Locked/Custom routing
 │   │   └── scheduler/
-│   │       └── index.ts          ← node-cron background poller
+│   │       └── index.ts          ← node-cron background poller (60s)
 │   └── types/
 │       └── index.ts              ← Shared TypeScript types
 ├── prisma/
-│   ├── schema.prisma             ← Account + OAuthSession models
+│   ├── schema.prisma             ← Account + Settings models
 │   └── migrations/               ← SQLite migration history
 └── setup-daemon.sh               ← macOS LaunchAgent setup script
 ```
