@@ -33,7 +33,7 @@ import {
 
 interface OpenAIRequest {
   model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: any }>;
   stream?: boolean;
   max_tokens?: number;
   temperature?: number;

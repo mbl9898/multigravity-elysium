@@ -40,6 +40,7 @@ export const MODEL_POOL_MAP: Record<string, 'gemini' | 'anthropic'> = {
 export interface CloudCodeMessage {
   role: 'user' | 'assistant' | 'model';
   content: string;
+  images?: Array<{ mimeType: string; data: string }>;
 }
 
 /** Normalize frontend UI model IDs to Google CloudCode supported backend model IDs. */
@@ -80,10 +81,23 @@ export function buildGeminiPayload(
     ...(options?.projectId ? { project: options.projectId } : {}),
     request: {
       model: targetModel,
-      contents: messages.map((m) => ({
-        role: m.role === 'assistant' ? 'model' : m.role,
-        parts: [{ text: m.content }],
-      })),
+      contents: messages.map((m) => {
+        const parts: any[] = [{ text: m.content }];
+        if (m.images) {
+          for (const img of m.images) {
+            parts.push({
+              inlineData: {
+                mimeType: img.mimeType,
+                data: img.data,
+              },
+            });
+          }
+        }
+        return {
+          role: m.role === 'assistant' ? 'model' : m.role,
+          parts,
+        };
+      }),
       generationConfig: {
         maxOutputTokens: options?.maxOutputTokens ?? 8192,
         temperature: options?.temperature ?? 1.0,
@@ -104,10 +118,23 @@ export function buildClaudePayload(
     ...(options?.projectId ? { project: options.projectId } : {}),
     request: {
       model: targetModel,
-      contents: messages.map((m) => ({
-        role: m.role === 'assistant' ? 'model' : m.role,
-        parts: [{ text: m.content }],
-      })),
+      contents: messages.map((m) => {
+        const parts: any[] = [{ text: m.content }];
+        if (m.images) {
+          for (const img of m.images) {
+            parts.push({
+              inlineData: {
+                mimeType: img.mimeType,
+                data: img.data,
+              },
+            });
+          }
+        }
+        return {
+          role: m.role === 'assistant' ? 'model' : m.role,
+          parts,
+        };
+      }),
       generationConfig: {
         maxOutputTokens: options?.maxOutputTokens ?? 8192,
         temperature: options?.temperature ?? 1.0,

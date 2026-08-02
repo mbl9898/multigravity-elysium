@@ -9,7 +9,14 @@ import type { CloudCodeMessage } from './client';
 
 export interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string | null | undefined;
+  content:
+    | string
+    | Array<
+        | { type: 'text'; text: string }
+        | { type: 'image_url'; image_url: { url: string } }
+      >
+    | null
+    | undefined;
 }
 
 /**
@@ -23,18 +30,44 @@ export function collapseOpenAIMessages(messages: OpenAIMessage[]): CloudCodeMess
   let systemBlock = '';
 
   for (const msg of messages) {
-    const text = (msg.content ?? '').trim();
-    if (!text) continue;
+    let text = '';
+    const images: Array<{ mimeType: string; data: string }> = [];
+
+    if (typeof msg.content === 'string') {
+      text = msg.content.trim();
+    } else if (Array.isArray(msg.content)) {
+      for (const part of msg.content) {
+        if (part.type === 'text') {
+          text += (text ? '\n' : '') + part.text;
+        } else if (part.type === 'image_url' && typeof part.image_url?.url === 'string') {
+          const url = part.image_url.url;
+          const match = /^data:(image\/[^;]+);base64,(.+)$/.exec(url);
+          if (match && match[1] && match[2]) {
+            images.push({ mimeType: match[1], data: match[2] });
+          }
+        }
+      }
+    }
+
+    if (!text && images.length === 0) continue;
 
     if (msg.role === 'system') {
       systemBlock += (systemBlock ? '\n\n' : '') + text;
     } else if (msg.role === 'user') {
       const content = systemBlock ? `[system]\n${systemBlock}\n\n[user]\n${text}` : text;
       systemBlock = ''; // consumed
-      out.push({ role: 'user', content });
+      out.push({
+        role: 'user',
+        content,
+        ...(images.length > 0 ? { images } : {}),
+      });
     } else {
       // assistant
-      out.push({ role: 'assistant', content: text });
+      out.push({
+        role: 'assistant',
+        content: text,
+        ...(images.length > 0 ? { images } : {}),
+      });
     }
   }
 
