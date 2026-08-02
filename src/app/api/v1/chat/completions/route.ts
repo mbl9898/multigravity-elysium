@@ -52,13 +52,14 @@ function errorResponse(message: string, status: number, code?: string): Response
 async function openUpstream(
   model: string,
   pool: 'gemini' | 'anthropic',
-  payloadStr: string,
+  buildPayloadFn: (projectId: string | null) => string,
   maxRetries: number,
 ): Promise<{ response: globalThis.Response; accountId: string; email: string }> {
   let attempt = 0;
   while (attempt <= maxRetries) {
-    const { accountId, email, accessToken } = await selectAndLockAccount(pool);
+    const { accountId, email, accessToken, projectId } = await selectAndLockAccount(pool);
     const headers = buildRequestHeaders(accessToken);
+    const payloadStr = buildPayloadFn(projectId);
 
     for (const baseUrl of CLOUDCODE_ENDPOINTS) {
       try {
@@ -126,12 +127,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Collapse messages
   const collapsed = collapseOpenAIMessages(messages);
 
-  // Build payload
-  const payloadObj =
-    pool === 'anthropic'
-      ? buildClaudePayload(model, collapsed, { maxOutputTokens: max_tokens, temperature })
-      : buildGeminiPayload(model, collapsed, { maxOutputTokens: max_tokens, temperature });
-  const payloadStr = JSON.stringify(payloadObj);
+  // Build payload generator
+  const buildPayloadFn = (projectId: string | null) =>
+    JSON.stringify(
+      pool === 'anthropic'
+        ? buildClaudePayload(model, collapsed, { maxOutputTokens: max_tokens, temperature, projectId })
+        : buildGeminiPayload(model, collapsed, { maxOutputTokens: max_tokens, temperature, projectId })
+    );
 
   // Count accounts for retry cap
   let maxRetries = 5; // conservative cap; router throws when pool truly empty
@@ -145,7 +147,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!stream) {
     let accountId = '';
     try {
-      const { response, accountId: aid, email } = await openUpstream(model, pool, payloadStr, maxRetries);
+      const { response, accountId: aid, email } = await openUpstream(model, pool, buildPayloadFn, maxRetries);
       accountId = aid;
       const rawText = await response.text();
       const text = extractTextFromSSE(rawText);
@@ -180,7 +182,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   let upstreamResponse: globalThis.Response | null = null;
 
   try {
-    const { response, accountId: aid } = await openUpstream(model, pool, payloadStr, maxRetries);
+    const { response, accountId: aid } = await openUpstream(model, pool, buildPayloadFn, maxRetries);
     accountId = aid;
     upstreamResponse = response;
   } catch (err) {

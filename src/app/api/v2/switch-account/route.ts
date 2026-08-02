@@ -26,6 +26,21 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
+// ── In-process V2 active email cache ─────────────────────────────────────────
+// Stored in globalThis so it survives HMR and is visible to the scheduler
+// running in the same Next.js process.
+const g = globalThis as typeof globalThis & { __v2ActiveEmail__?: string | null };
+
+/** Set by the GET handler every time it successfully reads the keychain. */
+export function setV2ActiveEmail(email: string | null): void {
+  g.__v2ActiveEmail__ = email?.toLowerCase().trim() ?? null;
+}
+
+/** Read by the scheduler to identify the fast-refresh account without a keychain shell call. */
+export function getV2ActiveEmail(): string | null {
+  return g.__v2ActiveEmail__ ?? null;
+}
+
 // ── Route version — update this when making changes to verify hot-reload ──────
 const ROUTE_VERSION = `v${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '.')}`;
 
@@ -193,6 +208,8 @@ export async function GET() {
         if (infoRes.ok) {
           const info = await infoRes.json() as { email?: string; name?: string };
           log(`GET → keychain email: ${info.email}`);
+          // Cache in-process so the scheduler can identify the active account
+          setV2ActiveEmail(info.email ?? null);
           return NextResponse.json({
             email: info.email ?? 'unknown',
             name: info.name ?? '',

@@ -16,9 +16,11 @@ import { refreshAccessToken } from '@/lib/antigravity/auth';
 
 /**
  * Gemini models to try in order.
- * 'gemini-3-flash' is the confirmed-working model for the cloudcode ping endpoint.
+ * 'gemini-2.5-flash-lite' = the exact model the Antigravity IDE uses for real requests,
+ * confirmed by MITM proxy log: "[MITM PROXY] Intercepted request. Model: gemini-2.5-flash-lite"
+ * This ensures the ping bills against the same "Gemini Models" 5h quota pool that the IDE tracks.
  */
-const GEMINI_PING_MODELS = ['gemini-3-flash', 'gemini-3.5-flash'];
+const GEMINI_PING_MODELS = ['gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-3.5-flash-low', 'gemini-3-flash'];
 
 /** 'claude-sonnet-4-6' = "Claude Sonnet 4.6 (Thinking)" in the Antigravity IDE */
 const CLAUDE_PING_MODEL = 'claude-sonnet-4-6';
@@ -34,35 +36,28 @@ export interface PingResult {
 }
 
 import https from 'https';
-import dns from 'dns';
 
-// Resolve real IP of target host using Cloudflare/Google DNS to bypass local /etc/hosts redirect
-function resolveRealIp(hostname: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const resolver = new dns.Resolver();
-    resolver.setServers(['1.1.1.1', '8.8.8.8']);
-    resolver.resolve4(hostname, (err, addresses) => {
-      if (err || !addresses.length) return reject(err || new Error('No IP found'));
-      resolve(addresses[0]);
-    });
-  });
-}
+// Candidate backends to ping in parallel to ensure complete coverage.
+const PING_HOSTS: Array<{ host: string; ip?: string }> = [
+  { host: 'daily-cloudcode-pa.googleapis.com', ip: '34.54.84.110' },
+  { host: 'daily-cloudcode-pa.googleapis.com' },
+  { host: 'daily-cloudcode-pa.sandbox.googleapis.com' },
+  { host: 'antigravity-unleash.goog', ip: '34.54.84.110' },
+];
 
-/**
- * Send a single minimal request to the cloudcode proxy for a given model.
- * Returns { ok: true } on 2xx or 429 (quota exceeded = countdown already running).
- */
-async function pingModel(
+function pingModelOnHost(
   accessToken: string,
   modelId: string,
-  projectId: string
+  projectId: string,
+  hostCfg: { host: string; ip?: string }
 ): Promise<{ ok: boolean; error?: string }> {
+  const { host, ip } = hostCfg;
   const body = JSON.stringify({
     model: modelId,
-    project: projectId, // Required: tells cloudcode which GCP project to bill
+    project: projectId,
     request: {
-      contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
-      generationConfig: { maxOutputTokens: 1, temperature: 0 },
+      contents: [{ role: 'user', parts: [{ text: 'Ping' }] }],
+      generationConfig: { maxOutputTokens: 10, temperature: 0.1 },
     },
   });
 
@@ -72,55 +67,69 @@ async function pingModel(
     'User-Agent': 'antigravity/1.11.3 windows/amd64',
     requestId: randomUUID(),
     requestType: 'agent',
-    Host: 'cloudcode-pa.googleapis.com',
+    Host: host,
   };
 
-  try {
-    const realIp = await resolveRealIp('cloudcode-pa.googleapis.com');
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: ip || host,
+        port: 443,
+        path: '/v1internal:streamGenerateContent?alt=sse',
+        method: 'POST',
+        headers,
+        servername: host,
+        rejectUnauthorized: false,
+      },
+      (res) => {
+        let resBody = '';
+        res.on('data', (chunk) => (resBody += chunk));
+        res.on('end', () => {
+          const status = res.statusCode || 500;
+          if (status >= 200 && status < 300) {
+            console.log(`[ping] ✓ ${host}${ip ? ` (${ip})` : ''} → ${modelId} → HTTP ${status}`);
+            resolve({ ok: true });
+          } else if (status === 429) {
+            console.log(`[ping] ✓ ${host}${ip ? ` (${ip})` : ''} → ${modelId} → HTTP 429 (quota active)`);
+            resolve({ ok: true });
+          } else {
+            console.log(`[ping] ✗ ${host}${ip ? ` (${ip})` : ''} → ${modelId} → HTTP ${status}`);
+            resolve({ ok: false, error: `HTTP ${status}: ${resBody.slice(0, 300)}` });
+          }
+        });
+      }
+    );
 
-    return new Promise((resolve) => {
-      const req = https.request(
-        {
-          hostname: realIp,
-          port: 443,
-          path: '/v1internal:streamGenerateContent?alt=sse',
-          method: 'POST',
-          headers,
-          servername: 'cloudcode-pa.googleapis.com',
-          rejectUnauthorized: false,
-        },
-        (res) => {
-          let resBody = '';
-          res.on('data', (chunk) => (resBody += chunk));
-          res.on('end', () => {
-            const status = res.statusCode || 500;
-            if (status >= 200 && status < 300) {
-              resolve({ ok: true });
-            } else if (status === 429) {
-              resolve({ ok: true }); // quota exceeded countdown running
-            } else {
-              resolve({ ok: false, error: `HTTP ${status}: ${resBody.slice(0, 300)}` });
-            }
-          });
-        }
-      );
-
-      req.on('error', (err) => {
-        resolve({ ok: false, error: `Socket error: ${err.message}` });
-      });
-
-      req.write(body);
-      req.end();
+    req.on('error', (err) => {
+      console.log(`[ping] ✗ ${host}${ip ? ` (${ip})` : ''} → ${modelId} → Socket error: ${err.message}`);
+      resolve({ ok: false, error: `Socket error: ${err.message}` });
     });
-  } catch (err) {
-    return { ok: false, error: `DNS resolve error: ${String(err)}` };
-  }
+
+    req.write(body);
+    req.end();
+  });
 }
 
-/**
- * Try each Gemini model in GEMINI_PING_MODELS order.
- * Falls back to the next model on 404; stops on hard auth errors.
- */
+async function pingModel(
+  accessToken: string,
+  modelId: string,
+  projectId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const results = await Promise.allSettled(
+    PING_HOSTS.map(cfg => pingModelOnHost(accessToken, modelId, projectId, cfg))
+  );
+
+  let anyOk = false;
+  let lastError: string | undefined;
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value.ok) anyOk = true;
+    if (r.status === 'fulfilled' && r.value.error) lastError = r.value.error;
+    if (r.status === 'rejected') lastError = String(r.reason);
+  }
+
+  return { ok: anyOk, error: anyOk ? undefined : lastError };
+}
+
 async function pingGemini(
   accessToken: string,
   projectId: string
@@ -128,7 +137,6 @@ async function pingGemini(
   for (const modelId of GEMINI_PING_MODELS) {
     const result = await pingModel(accessToken, modelId, projectId);
     if (result.ok) return { ok: true, modelUsed: modelId };
-    // Hard auth/server error — don't bother with next model
     if (result.error && !result.error.includes('404')) {
       return { ok: false, error: result.error };
     }
@@ -139,10 +147,6 @@ async function pingGemini(
   };
 }
 
-/**
- * Ping both Gemini and Claude for a given account.
- * Updates lastPingAt, lastPingStatus, lastPingError in the database.
- */
 export async function pingAccount(
   accountId: string,
   options?: { pingGemini?: boolean; pingClaude?: boolean }
@@ -219,6 +223,20 @@ export async function pingAccount(
       errorMsg ? ` error=${errorMsg}` : ''
     }`
   );
+
+  if (gemini && row.projectId) {
+    try {
+      const { fetchAccountQuota } = await import('./quota');
+      const q = await fetchAccountQuota(accessToken, row.projectId);
+      const g5h = q.gemini?.remaining5h;
+      const g5hReset = q.gemini?.resetTime5h;
+      console.log(
+        `[ping] ${row.email} → post-ping quota: gemini.remaining5h=${g5h ?? 'null'} resetTime5h=${g5hReset ?? 'null'}`
+      );
+    } catch (qErr) {
+      console.log(`[ping] ${row.email} → post-ping quota check failed: ${qErr}`);
+    }
+  }
 
   return { gemini, claude, geminiError, claudeError };
 }

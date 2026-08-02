@@ -32,6 +32,7 @@ interface AccountRow {
   encryptedRefreshToken: string;
   isHealthy: boolean;
   quotaJson: string | null;
+  projectId: string | null;
 }
 
 // ─── In-memory state ──────────────────────────────────────────────────────────
@@ -139,6 +140,7 @@ async function getCandidates(
       encryptedRefreshToken: true,
       isHealthy: true,
       quotaJson: true,
+      projectId: true,
     },
   });
 
@@ -224,7 +226,7 @@ function selectRoundRobin(
  */
 export async function selectAndLockAccount(
   pool: 'gemini' | 'anthropic',
-): Promise<{ accountId: string; email: string; accessToken: string }> {
+): Promise<{ accountId: string; email: string; accessToken: string; projectId: string | null }> {
   const settings = await getRoutingSettings();
   const candidates = await getCandidates(pool, settings);
 
@@ -256,7 +258,7 @@ export async function selectAndLockAccount(
   inFlight.add(selected.id);
   _lastUsedAccountId = selected.id; // track for scheduler's tiered cadence
   const accessToken = await getAccessToken(selected.id, selected.encryptedRefreshToken);
-  return { accountId: selected.id, email: selected.email, accessToken };
+  return { accountId: selected.id, email: selected.email, accessToken, projectId: selected.projectId };
 }
 
 /** Release an account's in-flight lock. Call in success, error, and stream-close paths. */

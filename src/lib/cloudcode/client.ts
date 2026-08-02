@@ -10,19 +10,24 @@
 //   3. Claude uses "role: assistant" (not "model"), system prompt in systemInstruction
 //   4. Gemini uses "role: model" for assistant turns
 
+import { randomUUID } from 'crypto';
+
 export const CLOUDCODE_ENDPOINTS = [
-  'https://daily-cloudcode-pa.sandbox.googleapis.com',
+  'https://daily-cloudcode-pa.googleapis.com',
   'https://cloudcode-pa.googleapis.com',
 ] as const;
 
 export const MODEL_POOL_MAP: Record<string, 'gemini' | 'anthropic'> = {
-  'gemini-3-flash':              'gemini',
-  'gemini-3.5-flash':            'gemini',
-  'gemini-3-flash-agent':        'gemini',
   'gemini-2.5-flash-lite':       'gemini',
+  'gemini-2.5-flash':            'gemini',
+  'gemini-2.5-pro':              'gemini',
+  'gemini-3-flash':              'gemini',
+  'gemini-3-flash-agent':        'gemini',
+  'gemini-3.5-flash':            'gemini',
   'gemini-3.5-flash-medium':     'gemini',
   'gemini-3.5-flash-high':       'gemini',
   'gemini-3.5-flash-low':        'gemini',
+  'gemini-3.6-flash-high':       'gemini',
   'gemini-3.1-pro-low':          'gemini',
   'gemini-3.1-pro-high':         'gemini',
   'claude-sonnet-4-6':           'anthropic',
@@ -37,13 +42,23 @@ export interface CloudCodeMessage {
   content: string;
 }
 
+/** Normalize frontend UI model IDs to Google CloudCode supported backend model IDs. */
+export function normalizeModelId(id: string): string {
+  if (id.includes('pro')) return 'gemini-2.5-pro';
+  if (id.includes('sonnet') || id.includes('opus')) return 'claude-sonnet-4-6';
+  if (id.includes('gpt')) return 'gpt-oss-120b-medium';
+  if (id.includes('flash') || id.includes('gemini')) return 'gemini-2.5-flash-lite';
+  return id;
+}
+
 /** Standard request headers for cloudcode-pa.googleapis.com. No x-goog-user-project. */
 export function buildRequestHeaders(accessToken: string): Record<string, string> {
   return {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
-    'User-Agent':
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Antigravity/1.11.5 Chrome/138.0.7204.235 Electron/37.3.1 Safari/537.36',
+    'User-Agent': 'antigravity/1.11.3 windows/amd64',
+    requestId: randomUUID(),
+    requestType: 'agent',
     'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
     'Client-Metadata': JSON.stringify({
       ideType: 'ANTIGRAVITY',
@@ -54,11 +69,17 @@ export function buildRequestHeaders(accessToken: string): Record<string, string>
 }
 
 /** Build the CloudCode SSE request payload for Gemini models. */
-export function buildGeminiPayload(modelId: string, messages: CloudCodeMessage[], options?: { maxOutputTokens?: number; temperature?: number }): object {
+export function buildGeminiPayload(
+  modelId: string,
+  messages: CloudCodeMessage[],
+  options?: { maxOutputTokens?: number; temperature?: number; projectId?: string | null }
+): object {
+  const targetModel = normalizeModelId(modelId);
   return {
-    model: modelId,
+    model: targetModel,
+    ...(options?.projectId ? { project: options.projectId } : {}),
     request: {
-      model: modelId,
+      model: targetModel,
       contents: messages.map((m) => ({
         role: m.role === 'assistant' ? 'model' : m.role,
         parts: [{ text: m.content }],
@@ -75,14 +96,16 @@ export function buildGeminiPayload(modelId: string, messages: CloudCodeMessage[]
 export function buildClaudePayload(
   modelId: string,
   messages: CloudCodeMessage[],
-  options?: { maxOutputTokens?: number; temperature?: number; systemPrompt?: string }
+  options?: { maxOutputTokens?: number; temperature?: number; systemPrompt?: string; projectId?: string | null }
 ): object {
+  const targetModel = normalizeModelId(modelId);
   const payload: Record<string, unknown> = {
-    model: modelId,
+    model: targetModel,
+    ...(options?.projectId ? { project: options.projectId } : {}),
     request: {
-      model: modelId,
+      model: targetModel,
       contents: messages.map((m) => ({
-        role: m.role === 'model' ? 'assistant' : m.role,
+        role: m.role === 'assistant' ? 'model' : m.role,
         parts: [{ text: m.content }],
       })),
       generationConfig: {

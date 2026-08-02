@@ -7,7 +7,8 @@
 
 import type { AccountQuota, PoolQuota } from '@/types';
 
-const CLOUDCODE_BASE = 'https://cloudcode-pa.googleapis.com';
+// Must match the IDE language server's --cloud_code_endpoint.
+const CLOUDCODE_BASE = 'https://daily-cloudcode-pa.googleapis.com';
 
 // ─── loadCodeAssist in-memory cache ──────────────────────────────────────────
 // Keyed by access token. TTL = 55 minutes (access tokens live 60 min).

@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import type { Account } from '@/types';
+import { SortMode, SORT_STORAGE_KEY, sortAccounts } from '@/lib/sorting';
 
 /* ---------- Types ---------- */
 interface Message {
@@ -21,25 +22,28 @@ interface AccountsResponse { accounts: Account[]; }
 /* ---------- Model Catalogue ---------- */
 const MODEL_GROUPS = [
   {
-    group: 'Gemini',
+    group: 'Gemini Models',
     color: 'from-blue-500 to-indigo-600',
     dot: 'bg-blue-400',
     models: [
-      { id: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', sub: 'Fast' },
+      { id: 'gemini-3.6-flash-high',   label: 'Gemini 3.6 Flash (High)',   sub: 'Fast' },
+      { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)', sub: 'Fast' },
+      { id: 'gemini-3.6-flash-low',    label: 'Gemini 3.6 Flash (Low)',    sub: 'Fast' },
       { id: 'gemini-3.5-flash-high',   label: 'Gemini 3.5 Flash (High)',   sub: 'Fast' },
+      { id: 'gemini-3.5-flash-medium', label: 'Gemini 3.5 Flash (Medium)', sub: 'Fast' },
       { id: 'gemini-3.5-flash-low',    label: 'Gemini 3.5 Flash (Low)',    sub: 'Fast' },
-      { id: 'gemini-3.1-pro-low',      label: 'Gemini 3.1 Pro (Low)',      sub: 'Capable' },
-      { id: 'gemini-3.1-pro-high',     label: 'Gemini 3.1 Pro (High)',     sub: 'Capable' },
+      { id: 'gemini-3.1-pro-high',     label: 'Gemini 3.1 Pro (High)',     sub: '' },
+      { id: 'gemini-3.1-pro-low',      label: 'Gemini 3.1 Pro (Low)',      sub: '' },
     ],
   },
   {
-    group: 'Claude & GPT',
+    group: 'Claude and GPT Models',
     color: 'from-orange-500 to-rose-600',
     dot: 'bg-orange-400',
     models: [
-      { id: 'claude-sonnet-4-6',           label: 'Claude Sonnet 4.6 (Thinking)', sub: 'Thinking' },
-      { id: 'claude-opus-4-6',             label: 'Claude Opus 4.6 (Thinking)',   sub: 'Thinking' },
-      { id: 'gpt-oss-120b-medium',         label: 'GPT-OSS 120B (Medium)',        sub: 'Open Source' },
+      { id: 'claude-sonnet-4-6',           label: 'Claude Sonnet 4.6 (Thinking)', sub: '' },
+      { id: 'claude-opus-4-6',             label: 'Claude Opus 4.6 (Thinking)',   sub: '' },
+      { id: 'gpt-oss-120b-medium',         label: 'GPT-OSS 120B (Medium)',        sub: '' },
     ],
   },
 ] as const;
@@ -171,10 +175,62 @@ export default function ChatPage() {
   const [selectedModel, setSelectedModel] = useState<string>('gemini-3-flash');
   const [isLoading, setIsLoading] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [sortMode, setSortMode] = useState<SortMode>('email');
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
+
+const CHAT_MODEL_STORAGE_KEY = 'chat-selected-model';
+
+  // Load persistent sort mode and selected model on mount
+  useEffect(() => {
+    try {
+      const savedSort = localStorage.getItem(SORT_STORAGE_KEY);
+      if (savedSort) {
+        const validModes: SortMode[] = [
+          'email',
+          'gemini-weekly-reset',
+          'anthropic-weekly-reset',
+          'gemini-5h-reset',
+          'anthropic-5h-reset',
+        ];
+        if (validModes.includes(savedSort as SortMode)) {
+          setTimeout(() => {
+            setSortMode(savedSort as SortMode);
+          }, 0);
+        }
+      }
+
+      const savedModel = localStorage.getItem(CHAT_MODEL_STORAGE_KEY);
+      if (savedModel && findModel(savedModel)) {
+        setTimeout(() => {
+          setSelectedModel(savedModel);
+        }, 0);
+      }
+    } catch (e) {
+      console.error('Failed to load preferences from localStorage:', e);
+    }
+  }, []);
+
+  const handleSortChange = (newMode: SortMode) => {
+    setSortMode(newMode);
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, newMode);
+    } catch (e) {
+      console.error('Failed to save sort mode to localStorage:', e);
+    }
+  };
+
+  const handleModelSelect = (modelId: string) => {
+    setSelectedModel(modelId);
+    setModelMenuOpen(false);
+    try {
+      localStorage.setItem(CHAT_MODEL_STORAGE_KEY, modelId);
+    } catch (e) {
+      console.error('Failed to save selected model to localStorage:', e);
+    }
+  };
 
   const { data } = useQuery<AccountsResponse>({
     queryKey: ['accounts'],
@@ -185,10 +241,16 @@ export default function ChatPage() {
     },
   });
 
-  const accounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
+  const rawAccounts = useMemo(() => data?.accounts ?? [], [data?.accounts]);
+  const accounts = useMemo(() => sortAccounts(rawAccounts, sortMode), [rawAccounts, sortMode]);
 
   useEffect(() => {
-    if (accounts.length && !selectedAccountId) setSelectedAccountId(accounts[0].id);
+    if (accounts.length) {
+      const exists = accounts.some((a) => a.id === selectedAccountId);
+      if (!selectedAccountId || !exists) {
+        setSelectedAccountId(accounts[0].id);
+      }
+    }
   }, [accounts, selectedAccountId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
@@ -212,7 +274,7 @@ export default function ChatPage() {
   }, []);
 
   const activeModel = findModel(selectedModel);
-  const isGemini = activeModel?.group === 'Gemini';
+  const isGemini = activeModel?.group === 'Gemini Models';
 
   const send = useCallback(async () => {
     if (!input.trim() || !selectedAccountId || isLoading) return;
@@ -286,12 +348,28 @@ export default function ChatPage() {
             </div>
           </div>
 
+          {/* Sort selector */}
+          {accounts.length > 0 && (
+            <select
+              value={sortMode}
+              onChange={(e) => handleSortChange(e.target.value as SortMode)}
+              className="text-xs bg-slate-800/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 max-w-[200px] w-auto hidden sm:block font-medium cursor-pointer"
+              title="Account Sort Order"
+            >
+              <option value="email">Sort: Email</option>
+              <option value="gemini-weekly-reset">Gemini 7d Reset</option>
+              <option value="anthropic-weekly-reset">Claude 7d Reset</option>
+              <option value="gemini-5h-reset">Gemini 5h Reset</option>
+              <option value="anthropic-5h-reset">Claude 5h Reset</option>
+            </select>
+          )}
+
           {/* Account selector */}
-          {accounts.length > 1 && (
+          {accounts.length > 0 && (
             <select
               value={selectedAccountId}
               onChange={(e) => setSelectedAccountId(e.target.value)}
-              className="text-xs bg-slate-800/80 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 max-w-[160px]"
+              className="text-xs bg-slate-800/80 border border-slate-700/60 rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 max-w-[260px] w-auto font-medium cursor-pointer"
             >
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>{a.nickname ?? a.email}</option>
@@ -322,7 +400,7 @@ export default function ChatPage() {
                     {group.models.map((m) => (
                       <button
                         key={m.id}
-                        onClick={() => { setSelectedModel(m.id); setModelMenuOpen(false); }}
+                        onClick={() => handleModelSelect(m.id)}
                         className={`w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-slate-800/60 transition-colors ${selectedModel === m.id ? 'bg-slate-800/60' : ''}`}
                       >
                         <div>
