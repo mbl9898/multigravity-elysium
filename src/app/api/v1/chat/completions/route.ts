@@ -20,7 +20,7 @@ import {
   parseGoogleSSELine,
   extractTextFromSSE,
 } from '@/lib/cloudcode/client';
-import { collapseOpenAIMessages } from '@/lib/cloudcode/collapse';
+import { collapseOpenAIMessages, type OpenAIMessage } from '@/lib/cloudcode/collapse';
 import {
   selectAndLockAccount,
   releaseAccount,
@@ -33,7 +33,7 @@ import {
 
 interface OpenAIRequest {
   model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: any }>;
+  messages: OpenAIMessage[];
   stream?: boolean;
   max_tokens?: number;
   temperature?: number;
@@ -82,6 +82,7 @@ async function openUpstream(
 
         return { response: upstream, accountId, email };
       } catch (err) {
+        console.error(`[openUpstream] error for ${baseUrl}:`, err);
         if (err instanceof AccountPoolExhaustedError || err instanceof LockedAccountUnavailableError) {
           throw err;
         }

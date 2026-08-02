@@ -82,7 +82,7 @@ export function buildGeminiPayload(
     request: {
       model: targetModel,
       contents: messages.map((m) => {
-        const parts: any[] = [{ text: m.content }];
+        const parts: Array<Record<string, unknown>> = [{ text: m.content }];
         if (m.images) {
           for (const img of m.images) {
             parts.push({
@@ -119,7 +119,7 @@ export function buildClaudePayload(
     request: {
       model: targetModel,
       contents: messages.map((m) => {
-        const parts: any[] = [{ text: m.content }];
+        const parts: Array<Record<string, unknown>> = [{ text: m.content }];
         if (m.images) {
           for (const img of m.images) {
             parts.push({
