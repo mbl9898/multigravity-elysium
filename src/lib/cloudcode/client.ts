@@ -82,7 +82,8 @@ export function buildGeminiPayload(
     request: {
       model: targetModel,
       contents: messages.map((m) => {
-        const parts: Array<Record<string, unknown>> = [{ text: m.content }];
+        const parts: Array<Record<string, unknown>> = [];
+        // Images FIRST — model sees visual context before reading the text instruction
         if (m.images) {
           for (const img of m.images) {
             parts.push({
@@ -93,6 +94,7 @@ export function buildGeminiPayload(
             });
           }
         }
+        parts.push({ text: m.content });
         return {
           role: m.role === 'assistant' ? 'model' : m.role,
           parts,
@@ -119,7 +121,8 @@ export function buildClaudePayload(
     request: {
       model: targetModel,
       contents: messages.map((m) => {
-        const parts: Array<Record<string, unknown>> = [{ text: m.content }];
+        const parts: Array<Record<string, unknown>> = [];
+        // Images FIRST — model sees visual context before reading the text instruction
         if (m.images) {
           for (const img of m.images) {
             parts.push({
@@ -130,6 +133,7 @@ export function buildClaudePayload(
             });
           }
         }
+        parts.push({ text: m.content });
         return {
           role: m.role === 'assistant' ? 'model' : m.role,
           parts,

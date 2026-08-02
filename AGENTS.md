@@ -29,4 +29,35 @@ When working on quota calculations, tracking, parsing, or proxy interception log
    * The dashboard runs as a background service/daemon. Editing source files does *not* automatically update the running app.
    * Every time you complete codebase changes (such as fixing a bug or implementing a feature), you MUST run `bash setup-daemon.sh --yes` to rebuild Next.js, migrate the database, and restart the background daemon process so changes take effect immediately.
 
+---
+
+## ⚠️ CRITICAL: Two Separate Instances — Do NOT Confuse Them
+
+This repository (`antigravity-dashboard/`) is the **source code** only. It is **NOT** what runs locally or on the server.
+
+| | Local running instance | Server running instance |
+|---|---|---|
+| **Location** | `~/.multigravity-elysium/` | `/home/unigate/apps/multigravity-elysium/` |
+| **Port** | `39281` | `39281` (localhost on server) |
+| **Database** | `~/.multigravity-elysium/prisma/dev.db` | `/home/unigate/apps/multigravity-elysium/prisma/dev.db` |
+| **Env** | `~/.multigravity-elysium/.env.local` | `/home/unigate/apps/multigravity-elysium/.env.local` |
+| **Process** | node PID on port 39281 (`lsof -i :39281`) | PM2 app `multigravity-elysium` |
+
+### What this means for agents
+
+- **NEVER** query `antigravity-dashboard/prisma/dev.db` to inspect live accounts. It is a stale development database with ~8 accounts and does not reflect reality.
+- **ALWAYS** query the real DB at `~/.multigravity-elysium/prisma/dev.db` locally, or via `curl http://localhost:39281/api/accounts` (with BypassSandbox).
+- The real account count as of 2026-08-02 is **14 accounts**, all `Google AI Pro`, all healthy.
+- To query the **server** DB: `ssh-unigate.sh "curl -s http://localhost:39281/api/accounts"`.
+
+### Credential migration (local → server)
+
+To sync fresh credentials after re-authenticating expired accounts:
+1. **Export**: `curl -X POST http://localhost:39281/api/accounts/export -d '{"password":"<pw>"}'`
+2. **Import on server** with upsert: `ssh-unigate.sh "curl -X POST http://localhost:39281/api/accounts/import -d '{\"bundle\":\"...\",\"password\":\"<pw>\",\"upsert\":true}'"` 
+3. **Restart**: `ssh-unigate.sh "pm2 restart multigravity-elysium"`
+
+The import route supports `upsert: true` which **updates** refresh tokens for existing accounts (instead of skipping them) — critical for fixing `invalid_grant` errors after token expiry.
+
+
 

@@ -2,8 +2,10 @@
 // POST /api/accounts/import
 // Imports accounts from a passphrase-encrypted export bundle.
 //
-// Body: { bundle: string, password: string }
-// Response: { imported: number, skipped: number, details: { imported: string[], skipped: string[] } }
+// Body: { bundle: string, password: string, upsert?: boolean }
+//   upsert — if true, existing accounts have their refresh token + projectId updated
+//            instead of being skipped (useful for migrating refreshed credentials).
+// Response: { imported: number, updated: number, skipped: number, details: { imported: string[], updated: string[], skipped: string[] } }
 
 import { NextRequest, NextResponse } from 'next/server';
 import { scryptSync, createDecipheriv } from 'crypto';
@@ -29,8 +31,9 @@ interface ExportPayload {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as { bundle?: unknown; password?: unknown };
-    const { bundle, password } = body;
+    const body = (await req.json()) as { bundle?: unknown; password?: unknown; upsert?: unknown };
+    const { bundle, password, upsert } = body;
+    const doUpsert = upsert === true;
 
     // Validate inputs
     if (typeof bundle !== 'string' || bundle.trim().length === 0) {
@@ -95,7 +98,8 @@ export async function POST(req: NextRequest) {
     }
 
     const importedEmails: string[] = [];
-    const skippedEmails: string[] = [];
+    const updatedEmails:  string[] = [];
+    const skippedEmails:  string[] = [];
 
     for (const acct of payload.accounts) {
       if (!acct.email || !acct.refreshToken) {
@@ -109,7 +113,23 @@ export async function POST(req: NextRequest) {
       });
 
       if (existing) {
-        skippedEmails.push(acct.email);
+        if (doUpsert) {
+          // Update the refresh token (and projectId if provided) for existing account
+          await prisma.account.update({
+            where: { id: existing.id },
+            data: {
+              encryptedRefreshToken: encrypt(acct.refreshToken),
+              ...(acct.projectId ? { projectId: acct.projectId } : {}),
+              isHealthy: true,
+              lastError: null,
+            },
+          });
+          updatedEmails.push(acct.email);
+          // Fire quota refresh in background — don't await
+          void refreshQuotaForAccount(existing.id, []);
+        } else {
+          skippedEmails.push(acct.email);
+        }
         continue;
       }
 
@@ -132,10 +152,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       imported: importedEmails.length,
-      skipped: skippedEmails.length,
+      updated:  updatedEmails.length,
+      skipped:  skippedEmails.length,
       details: {
         imported: importedEmails,
-        skipped: skippedEmails,
+        updated:  updatedEmails,
+        skipped:  skippedEmails,
       },
     });
   } catch (err) {
